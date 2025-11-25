@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    image: ${REGISTRY_IMAGE:-ghcr.io/example/chatbot:latest}
+    env_file:
+      - .env.production
+    environment:
+      ENV: production
+      APP_BASE_URL: ${APP_BASE_URL:-https://api.example.com}
+      RUN_DB_MIGRATIONS: ${RUN_DB_MIGRATIONS:-1}
+      WORKERS: ${WORKERS:-4}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "scripts/runserver.py"]
+
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - chatbot-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+volumes:
+  chatbot-db:

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+  <section>
+    <div class="actions">
+      <a class="btn" href="/admin/projects/new">Create Project</a>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Domain</th>
+          <th>Status</th>
+          <th>Last Crawl</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for project in projects %}
+          <tr>
+            <td><a href="/admin/projects/{{ project.id }}">{{ project.name }}</a></td>
+            <td>{{ project.primary_domain }}</td>
+            <td>{{ project.crawl_status.value if project.crawl_status else '' }}</td>
+            <td>{{ project.last_crawled_at or '—' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">No projects yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

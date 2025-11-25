@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Chatbot Admin{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/admin.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">RD</span>
+        <div>
+          <p class="brand-label">Rankflow Digital</p>
+          <p class="brand-subtitle">AI Command Center</p>
+        </div>
+      </div>
+      <nav class="main-nav">
+        <a href="/admin/projects" class="nav-link">Projects</a>
+      </nav>
+      <form action="/admin/logout" method="post" class="logout-form">
+        <button type="submit" class="btn ghost">Logout</button>
+      </form>
+    </header>
+    <main class="page-content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

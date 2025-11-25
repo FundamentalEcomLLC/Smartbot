@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+  <div class="auth-grid">
+    <section class="auth-card">
+      <p class="eyebrow">Admin Console</p>
+      <h1>Welcome back</h1>
+      <p class="section-subtitle">Securely manage knowledge sources, copilots, and delivery rules from one workspace.</p>
+
+      <form method="post" class="auth-form">
+        <div class="form-field">
+          <label for="email">Work email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="form-field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn">Sign in</button>
+      </form>
+
+      <p class="auth-microcopy">Need access? <a href="/admin/signup">Create an account</a>.</p>
+    </section>
+
+    <section class="auth-promo">
+      <div class="promo-badge">New release</div>
+      <h2>Enterprise-grade copilots</h2>
+      <p>Bring audit-ready controls, layered knowledge, and on-brand experiences directly to your community.</p>
+      <ul>
+        <li>Adaptive tone based on learning signals</li>
+        <li>Multi-recipient transcripts and notifications</li>
+        <li>Widget that resizes to each visitor</li>
+      </ul>
+    </section>
+  </div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}New Project{% endblock %}
+{% block content %}
+  <section>
+    <h2>Create Project</h2>
+    <form method="post" action="/admin/projects">
+      <label>Name <input name="name" required /></label>
+      <label>Primary domain or URL <input name="primary_domain" required /></label>
+      <button type="submit">Create</button>
+    </form>
+  </section>
+{% endblock %}

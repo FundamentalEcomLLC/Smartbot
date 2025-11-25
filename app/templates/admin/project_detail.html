@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Project {{ project.name }}{% endblock %}
+{% block content %}
+  <section>
+    <h2>{{ project.name }}</h2>
+    <p>Domain: {{ project.primary_domain }} | Status: {{ project.crawl_status.value if project.crawl_status else '' }}</p>
+    <form method="post" action="/admin/projects/{{ project.id }}/crawl">
+      <button type="submit">Start Crawl</button>
+    </form>
+    <form method="post" action="/admin/projects/{{ project.id }}/reembed" style="margin-top:0.5rem;">
+      <button type="submit">Rebuild Embeddings</button>
+    </form>
+  </section>
+
+  <section>
+    <h3>Learning & Tone</h3>
+    <form method="post" action="/admin/projects/{{ project.id }}/learning">
+      <label>
+        <input type="checkbox" name="learning_enabled" value="1" {% if project.learning_enabled %}checked{% endif %} />
+        Enable adaptive responses based on prior conversations
+      </label>
+      <label>Sample Rate (%)
+        <input type="number" name="learning_sample_rate" min="1" max="100" value="{{ project.learning_sample_rate }}" />
+      </label>
+      <button type="submit">Save learning settings</button>
+    </form>
+  </section>
+
+  <section>
+    <h3>Transcript Delivery</h3>
+    <p>Send every completed chat transcript (with captured contact details) to the recipients below.</p>
+    <form method="post" action="/admin/projects/{{ project.id }}/transcript-recipient">
+      <label>Email
+        <input type="email" name="recipient_email" placeholder="ops@example.com" required />
+      </label>
+      <label>Type
+        <select name="recipient_type">
+          <option value="TO">TO</option>
+          <option value="BCC">BCC</option>
+        </select>
+      </label>
+      <button type="submit">Add recipient</button>
+    </form>
+    <table>
+      <thead>
+        <tr><th>Email</th><th>Type</th><th>Status</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for recipient in project.transcript_recipients %}
+          <tr>
+            <td>{{ recipient.email }}</td>
+            <td>{{ recipient.type.value }}</td>
+            <td>{{ 'Active' if recipient.is_active else 'Inactive' }}</td>
+            <td>
+              <form method="post" action="/admin/projects/{{ project.id }}/transcript-recipient/{{ recipient.id }}/toggle" style="display:inline">
+                <button type="submit">{{ 'Disable' if recipient.is_active else 'Enable' }}</button>
+              </form>
+              <form method="post" action="/admin/projects/{{ project.id }}/transcript-recipient/{{ recipient.id }}/delete" style="display:inline" onsubmit="return confirm('Remove this recipient?');">
+                <button type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">No recipients configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Manual Note</h3>
+    <form method="post" action="/admin/projects/{{ project.id }}/manual-note">
+      <label>Title <input name="title" /></label>
+      <label>Content <textarea name="content" rows="5"></textarea></label>
+      <button type="submit">Save note</button>
+    </form>
+  </section>
+
+  <section>
+    <h3>Custom Q&A</h3>
+    <form method="post" action="/admin/projects/{{ project.id }}/custom-qa">
+      <label>Question <input name="question" required /></label>
+      <label>Answer <textarea name="answer" rows="4" required></textarea></label>
+      <button type="submit">Add Q&A</button>
+    </form>
+    <ul>
+      {% for qa in custom_qas %}
+        <li><strong>{{ qa.question }}</strong><br />{{ qa.answer }}</li>
+      {% else %}
+        <li>No custom entries yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section>
+    <h3>Documents</h3>
+    <form method="get" action="/admin/projects/{{ project.id }}" class="doc-search">
+      <input type="hidden" name="page" value="1" />
+      <label>Search <input name="q" value="{{ search_query }}" placeholder="URL or text" /></label>
+      <button type="submit">Filter</button>
+    </form>
+    <p>{{ documents_total }} results</p>
+    <table>
+      <thead>
+        <tr><th>Source</th><th>Type</th><th>Date</th></tr>
+      </thead>
+      <tbody>
+        {% for doc in documents %}
+          <tr>
+            <td>{{ doc.url_or_name }}</td>
+            <td>{{ doc.source_type.value if doc.source_type else '' }}</td>
+            <td>{{ doc.created_at }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3">No documents yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="pagination">
+      {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&q={{ search_query }}">Previous</a>
+      {% endif %}
+      <span>Page {{ page }} of {{ total_pages }}</span>
+      {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}&q={{ search_query }}">Next</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <section>
+    <h3>Bot Instructions</h3>
+    <form method="post" action="/admin/projects/{{ project.id }}/bot-config">
+      <label>System prompt <textarea name="system_prompt" rows="3">{{ project.bot_config.system_prompt if project.bot_config else '' }}</textarea></label>
+      <label>Additional instructions <textarea name="additional_instructions" rows="2">{{ project.bot_config.additional_instructions if project.bot_config else '' }}</textarea></label>
+      <label>Temperature <input type="number" step="0.1" name="temperature" value="{{ project.bot_config.temperature if project.bot_config else 0.2 }}" /></label>
+      <label>Max tokens <input type="number" name="max_tokens" value="{{ project.bot_config.max_tokens if project.bot_config else 700 }}" /></label>
+      <button type="submit">Save</button>
+    </form>
+  </section>
+
+  <section>
+    <h3>Embed</h3>
+    <pre>&lt;script src="{{ request.url_for('static', path='widget.js') }}" data-bot-id="{{ project.public_token }}" async&gt;&lt;/script&gt;</pre>
+  </section>
+
+  <section>
+    <h3>Integrations</h3>
+    <form method="post" action="/admin/projects/{{ project.id }}/integrations">
+      <label>Type
+        <select name="integration_type">
+          {% for choice in ["WEBHOOK","ZOHO_SALES_IQ","HUBSPOT","CUSTOM"] %}
+            <option value="{{ choice }}">{{ choice }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Config JSON
+        <textarea name="config_json" rows="3">{"url": "https://example.com/webhook"}</textarea>
+      </label>
+      <button type="submit">Add Integration</button>
+    </form>
+    <table>
+      <thead>
+        <tr><th>Type</th><th>Status</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for integration in integrations %}
+          <tr>
+            <td>{{ integration.type.value }}</td>
+            <td>{{ 'Active' if integration.is_active else 'Inactive' }}</td>
+            <td>
+              <form method="post" action="/admin/projects/{{ project.id }}/integrations/{{ integration.id }}/toggle" style="display:inline">
+                <button type="submit">{{ 'Disable' if integration.is_active else 'Enable' }}</button>
+              </form>
+              <form method="post" action="/admin/projects/{{ project.id }}/integrations/{{ integration.id }}/delete" style="display:inline" onsubmit="return confirm('Delete integration?');">
+                <button type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3">No integrations configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
