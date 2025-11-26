@@ -109,7 +109,7 @@
           <tr>
             <td>{{ doc.url_or_name }}</td>
             <td>{{ doc.source_type.value if doc.source_type else '' }}</td>
-            <td>{{ doc.created_at }}</td>
+            <td>{{ format_est(doc.created_at) }}</td>
           </tr>
         {% else %}
           <tr><td colspan="3">No documents yet.</td></tr>

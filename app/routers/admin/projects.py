@@ -1,7 +1,9 @@
 import json
 import logging
 import secrets
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import (
     APIRouter,
@@ -35,6 +37,7 @@ from ...services.knowledge import index_document_chunks, reembed_project_documen
 logger = logging.getLogger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+_TZ_EST = ZoneInfo("America/New_York")
 
 
 def _normalize_domain(value: str) -> str:
@@ -53,6 +56,14 @@ def _ensure_project(db: Session, user_id: int, project_id: int) -> Project:
     if not project:
         raise HTTPException(status_code=404)
     return project
+
+
+def _format_est(dt: datetime | None) -> str:
+    """Return datetime formatted in America/New_York for admin display."""
+    if dt is None:
+        return ""
+    aware = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return aware.astimezone(_TZ_EST).strftime("%Y-%m-%d %I:%M %p %Z")
 
 
 @router.get("/projects")
@@ -146,6 +157,7 @@ def project_dashboard(
             "total_docs": total_docs,
             "integrations": integrations,
             "integration_types": list(IntegrationType),
+            "format_est": _format_est,
         },
     )
 
