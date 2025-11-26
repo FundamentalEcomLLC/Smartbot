@@ -1,7 +1,7 @@
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
-from ..enums import ConversationStatus, MessageRole
+from ..enums import MessageRole
 from .base import Base, TimestampMixin
 
 
@@ -16,16 +16,6 @@ class Conversation(TimestampMixin, Base):
     visitor_email = Column(String(255), nullable=True)
     visitor_phone = Column(String(64), nullable=True)
     transcript_sent_at = Column(DateTime(timezone=True), nullable=True)
-    status = Column(
-        Enum(ConversationStatus, native_enum=False),
-        nullable=False,
-        server_default=ConversationStatus.ACTIVE.value,
-    )
-    last_user_message_at = Column(DateTime(timezone=True), nullable=True)
-    last_bot_message_at = Column(DateTime(timezone=True), nullable=True)
-    inactivity_warning_sent_at = Column(DateTime(timezone=True), nullable=True)
-    closed_at = Column(DateTime(timezone=True), nullable=True)
-    closed_reason = Column(String(255), nullable=True)
 
     project = relationship("Project", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all,delete")

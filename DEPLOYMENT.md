@@ -74,13 +74,3 @@ The command must run against the same `DATABASE_URL` you configured for Vercel.
 3. Monitor the Vercel logs: `vercel logs <deployment-url> --since 1h`.
 
 With these steps the full FastAPI application—routers, templates, and static files—runs on Vercel's serverless infrastructure.
-
-## 7. Inactivity automation
-
-The chatbot now supports automatic warnings and shutdowns for idle conversations. Run the Python-only worker locally, on a VM, or in a lightweight container alongside your database:
-
-```bash
-python scripts/inactivity_worker.py --loop --interval 30
-```
-
-Configure timing and copy changes via `CHAT_INACTIVITY_WARNING_SECONDS`, `CHAT_INACTIVITY_GRACE_SECONDS`, `CHAT_INACTIVITY_WARNING_MESSAGE`, and `CHAT_INACTIVITY_CLOSE_MESSAGE`. The worker issues a warning after the configured timeout, then closes the conversation (sending transcripts and integration events) if the visitor stays silent.
