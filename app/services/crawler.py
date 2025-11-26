@@ -95,6 +95,24 @@ def _delete_existing_document(db: Session, project_id: int, url: str) -> None:
     db.flush()
 
 
+def _purge_project_crawled_documents(project_id: int) -> None:
+    with SessionLocal() as cleanup_db:
+        deleted = (
+            cleanup_db.query(Document)
+            .filter(
+                Document.project_id == project_id,
+                Document.source_type == DocumentSourceType.CRAWLED_PAGE,
+            )
+            .delete(synchronize_session=False)
+        )
+        cleanup_db.commit()
+        logger.info(
+            "Removed %s existing crawled documents for project %s",
+            deleted,
+            project_id,
+        )
+
+
 def crawl_project(db: Session, project: Project, start_url: str, config: CrawlConfig) -> None:
     start_ts = time.monotonic()
     logger.info(
@@ -108,6 +126,8 @@ def crawl_project(db: Session, project: Project, start_url: str, config: CrawlCo
     )
     project.crawl_status = CrawlStatus.RUNNING
     db.commit()
+
+    _purge_project_crawled_documents(project.id)
 
     visited: Set[str] = set()
     queue: Deque[Tuple[str, int]] = deque([(start_url, 0)])

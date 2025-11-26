@@ -2,23 +2,44 @@
 """Helper script to kick off crawls from a local machine.
 
 Usage:
-    python scripts/run_crawler.py               # prompts for project id
-    python scripts/run_crawler.py --project-id 3 # non-interactive
+    python scripts/run_crawler.py                                 # prompts for project id
+    python scripts/run_crawler.py --project-id 3                  # non-interactive
+    python scripts/run_crawler.py --env-file .env.local           # custom env file
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
+from typing import Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.db import SessionLocal  # noqa: E402
-from app.models import Project  # noqa: E402
-from app.services.crawler import CrawlConfig, crawl_project  # noqa: E402
+
+def _configure_environment(env: str | None, env_file: str | None) -> None:
+    if env_file:
+        env_path = Path(env_file).expanduser().resolve()
+        if not env_path.exists():
+            raise SystemExit(f"Env file {env_path} was not found")
+        os.environ["CHATBOT_ENV_FILE"] = str(env_path)
+    elif "CHATBOT_ENV_FILE" not in os.environ:
+        default_local = ROOT / ".env.local"
+        if default_local.exists():
+            os.environ.setdefault("CHATBOT_ENV_FILE", str(default_local))
+    if env:
+        os.environ["ENV"] = env
+
+
+def _load_app_objects() -> Tuple:
+    from app.db import SessionLocal  # noqa: WPS433 (import after env configured)
+    from app.models import Project
+    from app.services.crawler import CrawlConfig, crawl_project
+
+    return SessionLocal, Project, CrawlConfig, crawl_project
 
 
 def _prompt_int(prompt: str) -> int:
@@ -48,7 +69,12 @@ def main() -> None:
     parser.add_argument("--max-depth", type=int, help="Limit crawl depth")
     parser.add_argument("--delay", type=float, help="Seconds to wait between requests")
     parser.add_argument("--concurrency", type=int, help="Number of concurrent fetches")
+    parser.add_argument("--env", help="Named environment (maps to .env.<env>)")
+    parser.add_argument("--env-file", help="Explicit env file path")
     args = parser.parse_args()
+
+    _configure_environment(args.env, args.env_file)
+    SessionLocal, Project, CrawlConfig, crawl_project = _load_app_objects()
 
     project_id = args.project_id or _prompt_int("Enter the project ID to crawl: ")
 
