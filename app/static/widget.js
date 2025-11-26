@@ -16,6 +16,11 @@
 
   const apiBase = scriptEl.dataset.apiBase || defaultApiBase;
   const SESSION_STORAGE_KEY = `chatbot-session-${botId}`;
+  const AUTO_OPEN_STORAGE_KEY = `chatbot-auto-open-${botId}`;
+  const AUTO_OPEN_DELAY_MS = Number(scriptEl.dataset.autoOpenDelayMs || 5000);
+  const AUTO_WELCOME_MESSAGE =
+    scriptEl.dataset.autoWelcomeMessage ||
+    "Hey there! I'm here to answer questions or point you in the right direction.";
   const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 70000);
   const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
   const WARNING_MESSAGE =
@@ -44,6 +49,7 @@
     hasConversation: false,
     panelEl: null,
     messagesEl: null,
+    autoWelcomeShown: false,
   };
 
   function readPersistedSession() {
@@ -92,6 +98,22 @@
       await closeSessionRequest({ sessionId: cached.sessionId, skipStateReset: true });
     } catch (err) {
       console.warn("Chat widget: failed to close previous session", err);
+    }
+  }
+
+  function hasAutoOpened() {
+    try {
+      return window.sessionStorage.getItem(AUTO_OPEN_STORAGE_KEY) === "1";
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function markAutoOpened() {
+    try {
+      window.sessionStorage.setItem(AUTO_OPEN_STORAGE_KEY, "1");
+    } catch (err) {
+      /* ignore storage issues */
     }
   }
 
@@ -448,6 +470,58 @@
     return bubble;
   }
 
+  function openPanel(panel, statusChip) {
+    if (state.isOpen) {
+      return;
+    }
+    state.isOpen = true;
+    panel.classList.add("is-open");
+    panel.setAttribute("aria-hidden", "false");
+    markAutoOpened();
+    syncPanelSize(panel);
+    updateSizeChipLabel(statusChip);
+    ensureSession().catch((err) => console.error("Chat widget", err));
+  }
+
+  function closePanel(panel) {
+    if (!state.isOpen) {
+      return;
+    }
+    panel.classList.remove("is-open");
+    panel.setAttribute("aria-hidden", "true");
+    state.isOpen = false;
+  }
+
+  function appendAutoWelcomeMessage(messagesEl) {
+    if (state.autoWelcomeShown || !AUTO_WELCOME_MESSAGE || state.hasConversation) {
+      return;
+    }
+    appendMessage(messagesEl, "assistant", AUTO_WELCOME_MESSAGE);
+    state.autoWelcomeShown = true;
+  }
+
+  function runAutoWelcome(panel, messagesEl, statusChip) {
+    openPanel(panel, statusChip);
+    appendAutoWelcomeMessage(messagesEl);
+  }
+
+  function maybeScheduleAutoOpen(panel, messagesEl, statusChip) {
+    if (AUTO_OPEN_DELAY_MS <= 0 || hasAutoOpened()) {
+      return;
+    }
+    window.setTimeout(() => {
+      if (hasAutoOpened()) {
+        return;
+      }
+      if (state.isOpen || document.hidden) {
+        markAutoOpened();
+        return;
+      }
+      markAutoOpened();
+      runAutoWelcome(panel, messagesEl, statusChip);
+    }, AUTO_OPEN_DELAY_MS);
+  }
+
   function clearInactivityTimers() {
     if (state.inactivityTimer) {
       clearTimeout(state.inactivityTimer);
@@ -537,9 +611,7 @@
     state.hasConversation = false;
     await closeSessionRequest();
     messagesEl.innerHTML = "";
-    panel.classList.remove("is-open");
-    panel.setAttribute("aria-hidden", "true");
-    state.isOpen = false;
+    closePanel(panel);
     return reason;
   }
 
@@ -742,14 +814,11 @@
     registerResizer(panel, resizer, statusChip);
 
     launcher.addEventListener("click", function () {
-      state.isOpen = !state.isOpen;
-      panel.classList.toggle("is-open", state.isOpen);
-      panel.setAttribute("aria-hidden", String(!state.isOpen));
       if (state.isOpen) {
-        syncPanelSize(panel);
-        updateSizeChipLabel(statusChip);
-        ensureSession().catch((err) => console.error("Chat widget", err));
+        closePanel(panel);
+        return;
       }
+      openPanel(panel, statusChip);
     });
 
     closeBtn.addEventListener("click", function () {
@@ -770,6 +839,8 @@
 
     document.body.appendChild(launcher);
     document.body.appendChild(panel);
+
+    maybeScheduleAutoOpen(panel, messagesEl, statusChip);
 
     window.addEventListener("resize", function () {
       if (!document.body.contains(panel)) {
