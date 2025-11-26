@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -94,6 +94,11 @@ app.include_router(admin_router, prefix="/admin")
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return "<h1>Website Crawler + AI Chatbot Platform</h1><p>Visit /admin to log in.</p>"
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_redirect():
+    return RedirectResponse(url="/admin/login", status_code=307)
 
 
 if __name__ == "__main__":
