@@ -1,6 +1,4 @@
-import logging
 import secrets
-from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -10,12 +8,8 @@ from ...dependencies import get_db
 from ...models import Conversation, Project
 from ...schemas import ChatRequest, CloseSessionRequest
 from ...services.chat import stream_chat_response
-from ...services.integrations import IntegrationEvent, emit_integration_events
-from ...services.learning import update_learning_stats
-from ...services.transcript_email import send_transcript_email
+from ...services.conversation_lifecycle import close_conversation
 from ...services.rate_limit import RateLimitExceeded, rate_limiter
-
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -66,19 +60,11 @@ def close_session(payload: CloseSessionRequest, db: Session = Depends(get_db)):
     if not conversation:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    emit_integration_events(
+    closed = close_conversation(
         db,
         project,
         conversation,
-        IntegrationEvent.CONVERSATION_ENDED,
-        "Conversation closed by user",
+        reason="user_requested",
+        latest_message="Conversation closed by user",
     )
-    try:
-        update_learning_stats(db, project, conversation)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Learning stats update failed: %s", exc)
-    try:
-        send_transcript_email(db, project, conversation)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Transcript email failed: %s", exc)
-    return {"status": "closed"}
+    return {"status": "closed" if closed else "already_closed"}

@@ -20,6 +20,12 @@ class MessageRole(str, enum.Enum):
     SYSTEM = "SYSTEM"
 
 
+class ConversationStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    WARNING = "WARNING"
+    CLOSED = "CLOSED"
+
+
 class IntegrationType(str, enum.Enum):
     WEBHOOK = "WEBHOOK"
     ZOHO_SALES_IQ = "ZOHO_SALES_IQ"

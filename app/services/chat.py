@@ -2,13 +2,14 @@ import logging
 import random
 import re
 import time
+from datetime import datetime, timezone
 from typing import Dict, Generator, Iterable, List, Optional
 
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..enums import MessageRole
+from ..enums import ConversationStatus, MessageRole
 from ..models import BotConfig, Conversation, Message, Project
 from .cache import cache
 from .embeddings import embed_texts
@@ -105,14 +106,16 @@ def _get_or_create_conversation(
             Conversation.project_id == project.id,
             Conversation.external_session_id == session_id,
         )
+        .order_by(Conversation.created_at.desc())
         .first()
     )
-    if conversation:
+    if conversation and conversation.status != ConversationStatus.CLOSED:
         return conversation, False
 
     conversation = Conversation(
         project_id=project.id,
         external_session_id=session_id,
+        status=ConversationStatus.ACTIVE,
     )
     db.add(conversation)
     db.flush()
@@ -126,9 +129,19 @@ def _save_message(
     content: str,
 ) -> Message:
     message = Message(conversation_id=conversation.id, role=role, content=content)
+    now = datetime.now(timezone.utc)
     changed = False
     if role == MessageRole.USER:
-        changed = _apply_contact_updates(conversation, **_extract_contact_details(content))
+        _apply_contact_updates(conversation, **_extract_contact_details(content))
+        conversation.last_user_message_at = now
+        conversation.status = ConversationStatus.ACTIVE
+        conversation.inactivity_warning_sent_at = None
+        conversation.closed_at = None
+        conversation.closed_reason = None
+        changed = True
+    elif role in {MessageRole.ASSISTANT, MessageRole.SYSTEM}:
+        conversation.last_bot_message_at = now
+        changed = True
     if changed:
         db.add(conversation)
     db.add(message)

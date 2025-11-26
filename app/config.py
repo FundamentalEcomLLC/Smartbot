@@ -10,6 +10,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _resolve_env_file() -> str:
+    local_override = _PROJECT_ROOT / ".env.local"
+    if local_override.exists():
+        return str(local_override)
     override = os.environ.get("CHATBOT_ENV_FILE")
     if override:
         return override
@@ -40,6 +43,22 @@ class Settings(BaseSettings):
     app_base_url: str = Field("http://localhost:8000", alias="APP_BASE_URL")
     session_cookie_name: str = Field("chatbot_session", alias="SESSION_COOKIE_NAME")
     session_expire_minutes: int = Field(60 * 24, alias="SESSION_EXPIRE_MINUTES")
+    chat_inactivity_warning_seconds: int = Field(
+        70,
+        alias="CHAT_INACTIVITY_WARNING_SECONDS",
+    )
+    chat_inactivity_grace_seconds: int = Field(
+        60,
+        alias="CHAT_INACTIVITY_GRACE_SECONDS",
+    )
+    chat_inactivity_warning_message: str = Field(
+        "Just checking in - I'll close the chat soon if I don't hear back.",
+        alias="CHAT_INACTIVITY_WARNING_MESSAGE",
+    )
+    chat_inactivity_close_message: str = Field(
+        "I'll close our chat for now. Feel free to start a new one anytime!",
+        alias="CHAT_INACTIVITY_CLOSE_MESSAGE",
+    )
     default_model: str = Field("gpt-4o-mini", alias="OPENAI_CHAT_MODEL")
     embedding_model: str = Field("text-embedding-3-large", alias="OPENAI_EMBEDDING_MODEL")
     crawl_max_pages_default: int = 100
