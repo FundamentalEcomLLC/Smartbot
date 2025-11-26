@@ -17,10 +17,10 @@
   const apiBase = scriptEl.dataset.apiBase || defaultApiBase;
   const SESSION_STORAGE_KEY = `chatbot-session-${botId}`;
   const AUTO_OPEN_STORAGE_KEY = `chatbot-auto-open-${botId}`;
-  const AUTO_OPEN_DELAY_MS = Number(scriptEl.dataset.autoOpenDelayMs || 5000);
+  const AUTO_OPEN_DELAY_MS = Number(scriptEl.dataset.autoOpenDelayMs || 10000);
   const AUTO_WELCOME_MESSAGE =
     scriptEl.dataset.autoWelcomeMessage ||
-    "Hey there! I'm here to answer questions or point you in the right direction.";
+    "Thanks for visiting us! Let me know how I can help.";
   const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 70000);
   const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
   const WARNING_MESSAGE =
