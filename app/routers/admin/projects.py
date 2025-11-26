@@ -297,7 +297,7 @@ def toggle_transcript_recipient(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ = _ensure_project(db, current_user.id, project_id)
+    project = _ensure_project(db, current_user.id, project_id)
     recipient = (
         db.query(ProjectTranscriptRecipient)
         .filter(
@@ -320,7 +320,7 @@ def delete_transcript_recipient(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ = _ensure_project(db, current_user.id, project_id)
+    project = _ensure_project(db, current_user.id, project_id)
     recipient = (
         db.query(ProjectTranscriptRecipient)
         .filter(
