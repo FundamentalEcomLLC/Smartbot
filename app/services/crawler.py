@@ -77,6 +77,24 @@ class _FetchThrottle:
             self._next_allowed = max(self._next_allowed, time.monotonic() + delay)
 
 
+# Remove stale crawled document/chunks so repeated crawls keep the latest content.
+def _delete_existing_document(db: Session, project_id: int, url: str) -> None:
+    existing = (
+        db.query(Document)
+        .filter(
+            Document.project_id == project_id,
+            Document.source_type == DocumentSourceType.CRAWLED_PAGE,
+            Document.url_or_name == url,
+        )
+        .all()
+    )
+    if not existing:
+        return
+    for doc in existing:
+        db.delete(doc)
+    db.flush()
+
+
 def crawl_project(db: Session, project: Project, start_url: str, config: CrawlConfig) -> None:
     start_ts = time.monotonic()
     logger.info(
@@ -134,6 +152,7 @@ def crawl_project(db: Session, project: Project, start_url: str, config: CrawlCo
                     logger.debug("No meaningful text extracted from %s", normalized)
                     return 0, []
                 with SessionLocal() as worker_db:
+                    _delete_existing_document(worker_db, project.id, normalized)
                     document = Document(
                         project_id=project.id,
                         source_type=DocumentSourceType.CRAWLED_PAGE,
