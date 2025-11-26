@@ -15,6 +15,14 @@
   }
 
   const apiBase = scriptEl.dataset.apiBase || defaultApiBase;
+  const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 70000);
+  const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
+  const WARNING_MESSAGE =
+    scriptEl.dataset.inactivityWarningMessage ||
+    "Just checking in - I'll close the chat soon if I don't hear back.";
+  const CLOSE_MESSAGE =
+    scriptEl.dataset.inactivityCloseMessage ||
+    "I'll close our chat for now. Feel free to start a new one anytime!";
   const sizePresets = [
     { id: "compact", label: "Compact", width: 320, height: 420 },
     { id: "comfort", label: "Comfort", width: 380, height: 520 },
@@ -29,6 +37,12 @@
     customSize: null,
     panelSize: null,
     isResizing: false,
+    inactivityTimer: null,
+    closeTimer: null,
+    warningShown: false,
+    hasConversation: false,
+    panelEl: null,
+    messagesEl: null,
   };
 
   const styles = `
@@ -384,6 +398,72 @@
     return bubble;
   }
 
+  function clearInactivityTimers() {
+    if (state.inactivityTimer) {
+      clearTimeout(state.inactivityTimer);
+      state.inactivityTimer = null;
+    }
+    if (state.closeTimer) {
+      clearTimeout(state.closeTimer);
+      state.closeTimer = null;
+    }
+  }
+
+  function startInactivityCountdown(messagesEl) {
+    if (!state.sessionId || !state.hasConversation) {
+      return;
+    }
+    clearInactivityTimers();
+    state.inactivityTimer = window.setTimeout(() => {
+      if (state.warningShown) {
+        return;
+      }
+      state.warningShown = true;
+      appendMessage(messagesEl, "assistant", WARNING_MESSAGE);
+      state.closeTimer = window.setTimeout(() => {
+        appendMessage(messagesEl, "assistant", CLOSE_MESSAGE);
+        if (state.panelEl) {
+          window.setTimeout(() => {
+            closeChat(state.panelEl, messagesEl, "auto_inactivity").catch((err) =>
+              console.error("Chat widget auto-close", err)
+            );
+          }, 1200);
+        }
+      }, INACTIVITY_CLOSE_MS);
+    }, INACTIVITY_WARNING_MS);
+  }
+
+  async function closeSessionRequest() {
+    if (!state.sessionId) {
+      return;
+    }
+    const payload = JSON.stringify({ bot_id: botId, session_id: state.sessionId });
+    const target = `${apiBase}/api/public/close-session`;
+    state.sessionId = null;
+    try {
+      await fetch(target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      });
+    } catch (err) {
+      console.warn("Chat widget: close-session failed", err);
+    }
+  }
+
+  async function closeChat(panel, messagesEl, reason = "user_closed") {
+    clearInactivityTimers();
+    state.warningShown = false;
+    state.hasConversation = false;
+    await closeSessionRequest();
+    messagesEl.innerHTML = "";
+    panel.classList.remove("is-open");
+    panel.setAttribute("aria-hidden", "true");
+    state.isOpen = false;
+    return reason;
+  }
+
   async function ensureSession() {
     if (state.sessionId) {
       return state.sessionId;
@@ -404,9 +484,12 @@
       return;
     }
     state.isSending = true;
+    state.warningShown = false;
+    clearInactivityTimers();
     inputEl.value = "";
     appendMessage(messagesEl, "user", text);
     const assistantBubble = appendMessage(messagesEl, "assistant", "...");
+    let responseText = "";
 
     try {
       const sessionId = await ensureSession();
@@ -426,7 +509,6 @@
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let responseText = "";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -438,11 +520,15 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
-      assistantBubble.textContent = responseText || "(no response)";
+      responseText = responseText || "(no response)";
+      assistantBubble.textContent = responseText;
     } catch (err) {
       console.error("Chat widget error", err);
-      assistantBubble.textContent = "Sorry, something went wrong.";
+      responseText = "Sorry, something went wrong.";
+      assistantBubble.textContent = responseText;
     } finally {
+      state.hasConversation = true;
+      startInactivityCountdown(messagesEl);
       state.isSending = false;
     }
   }
@@ -502,6 +588,7 @@
     panel.className = "chatbot-panel";
     panel.setAttribute("aria-hidden", "true");
     applyPresetSize(panel, state.activeSize);
+    state.panelEl = panel;
 
     const header = document.createElement("div");
     header.className = "chatbot-header";
@@ -543,6 +630,7 @@
 
     const messagesEl = document.createElement("div");
     messagesEl.className = "chatbot-messages";
+    state.messagesEl = messagesEl;
 
     const inputWrap = document.createElement("form");
     inputWrap.className = "chatbot-input";
@@ -582,9 +670,7 @@
     });
 
     closeBtn.addEventListener("click", function () {
-      state.isOpen = false;
-      panel.classList.remove("is-open");
-      panel.setAttribute("aria-hidden", "true");
+      closeChat(panel, messagesEl).catch((err) => console.error("Chat widget", err));
     });
 
     statusChip.addEventListener("click", function () {
@@ -618,6 +704,8 @@
         `${apiBase}/api/public/close-session`,
         JSON.stringify({ bot_id: botId, session_id: state.sessionId })
       );
+      state.sessionId = null;
+      clearInactivityTimers();
     });
   }
 
