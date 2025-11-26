@@ -7,12 +7,14 @@
   }
 
   const botId = scriptEl.dataset.botId;
+  const scriptUrl = new URL(scriptEl.src);
+  const defaultApiBase = `${scriptUrl.origin}`;
   if (!botId) {
     console.error("Chat widget: missing data-bot-id attribute.");
     return;
   }
 
-  const apiBase = scriptEl.dataset.apiBase || new URL(scriptEl.src, window.location.href).origin;
+  const apiBase = scriptEl.dataset.apiBase || defaultApiBase;
   const sizePresets = [
     { id: "compact", label: "Compact", width: 320, height: 420 },
     { id: "comfort", label: "Comfort", width: 380, height: 520 },
