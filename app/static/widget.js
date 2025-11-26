@@ -15,6 +15,7 @@
   }
 
   const apiBase = scriptEl.dataset.apiBase || defaultApiBase;
+  const SESSION_STORAGE_KEY = `chatbot-session-${botId}`;
   const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 70000);
   const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
   const WARNING_MESSAGE =
@@ -44,6 +45,55 @@
     panelEl: null,
     messagesEl: null,
   };
+
+  function readPersistedSession() {
+    try {
+      const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistSessionState() {
+    if (!state.sessionId) {
+      clearPersistedSession();
+      return;
+    }
+    try {
+      const payload = {
+        sessionId: state.sessionId,
+        hasConversation: Boolean(state.hasConversation),
+      };
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      /* ignore storage issues */
+    }
+  }
+
+  function clearPersistedSession() {
+    try {
+      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch (err) {
+      /* ignore storage issues */
+    }
+  }
+
+  async function closePersistedSessionIfNeeded() {
+    const cached = readPersistedSession();
+    if (!cached || !cached.sessionId) {
+      return;
+    }
+    if (!cached.hasConversation) {
+      clearPersistedSession();
+      return;
+    }
+    try {
+      await closeSessionRequest({ sessionId: cached.sessionId, skipStateReset: true });
+    } catch (err) {
+      console.warn("Chat widget: failed to close previous session", err);
+    }
+  }
 
   const styles = `
     @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
@@ -433,13 +483,40 @@
     }, INACTIVITY_WARNING_MS);
   }
 
-  async function closeSessionRequest() {
-    if (!state.sessionId) {
+  async function closeSessionRequest(options = {}) {
+    const {
+      sessionId: explicitSessionId,
+      useBeacon = false,
+      preserveStorage = false,
+      skipStateReset = false,
+    } = options;
+    const activeSessionId = explicitSessionId || state.sessionId;
+    if (!activeSessionId) {
       return;
     }
-    const payload = JSON.stringify({ bot_id: botId, session_id: state.sessionId });
+    const payload = JSON.stringify({ bot_id: botId, session_id: activeSessionId });
     const target = `${apiBase}/api/public/close-session`;
-    state.sessionId = null;
+    if (!explicitSessionId && !skipStateReset) {
+      state.sessionId = null;
+    }
+
+    const finalizeStorage = () => {
+      if (!preserveStorage) {
+        clearPersistedSession();
+      }
+    };
+
+    if (useBeacon && navigator.sendBeacon) {
+      try {
+        const blob = new Blob([payload], { type: "application/json" });
+        navigator.sendBeacon(target, blob);
+      } catch (err) {
+        console.warn("Chat widget: close-session beacon failed", err);
+      }
+      finalizeStorage();
+      return;
+    }
+
     try {
       await fetch(target, {
         method: "POST",
@@ -449,7 +526,9 @@
       });
     } catch (err) {
       console.warn("Chat widget: close-session failed", err);
+      return;
     }
+    finalizeStorage();
   }
 
   async function closeChat(panel, messagesEl, reason = "user_closed") {
@@ -476,6 +555,7 @@
     }
     const data = await res.json();
     state.sessionId = data.session_id;
+    persistSessionState();
     return state.sessionId;
   }
 
@@ -490,6 +570,8 @@
     appendMessage(messagesEl, "user", text);
     const assistantBubble = appendMessage(messagesEl, "assistant", "...");
     let responseText = "";
+    state.hasConversation = true;
+    persistSessionState();
 
     try {
       const sessionId = await ensureSession();
@@ -528,6 +610,7 @@
       assistantBubble.textContent = responseText;
     } finally {
       state.hasConversation = true;
+      persistSessionState();
       startInactivityCountdown(messagesEl);
       state.isSending = false;
     }
@@ -697,17 +780,16 @@
     });
 
     window.addEventListener("beforeunload", function () {
-      if (!state.sessionId) {
+      if (!state.sessionId || !state.hasConversation) {
         return;
       }
-      navigator.sendBeacon(
-        `${apiBase}/api/public/close-session`,
-        JSON.stringify({ bot_id: botId, session_id: state.sessionId })
-      );
-      state.sessionId = null;
+      persistSessionState();
+      closeSessionRequest({ useBeacon: true, preserveStorage: true }).catch(() => {});
       clearInactivityTimers();
     });
   }
+
+  closePersistedSessionIfNeeded().catch(() => {});
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", createWidget);
