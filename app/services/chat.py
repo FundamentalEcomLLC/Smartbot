@@ -553,10 +553,10 @@ def _handle_history_consent(
         session_state.otp_consent_prompted_at = _now()
         result.state_dirty = True
         result.bot_reply = (
-            "Thanks for sharing your email. It looks like you’ve reached out to us before using this address. "
+            "It looks like you’ve reached out to us before using the email we have on file. "
             "Do you want me to pull in your previous conversation, or would you prefer to start fresh today?\n\n"
-            "Just a heads-up: if you’d like me to reference the previous chat, I’ll need to send a one-time verification "
-            "code (OTP) to this email to confirm it’s really you."
+            "Just a heads-up: if you’d like me to reference the previous chat, I’ll send a one-time verification code (OTP) "
+            "to that email to confirm it’s really you."
         )
         result.should_halt = True
         return result

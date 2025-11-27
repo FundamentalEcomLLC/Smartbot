@@ -125,18 +125,19 @@ def send_transcript_email(db: Session, project: Project, conversation: Conversat
 
     visitor_sent = False
     if conversation.visitor_email:
+        site_url = project.primary_domain or "our site"
+        if site_url and not site_url.startswith(("http://", "https://")):
+            site_url = f"https://{site_url}"
         visitor_body = "\n".join(
             [
                 f"Hi {conversation.visitor_name or 'there'},",
                 "",
-                "Here is a quick recap of our conversation:",
-                summary,
-                "",
-                "We will follow up shortly with the next steps.",
+                "Attached is the transcript of our conversation earlier. If you need further assistance, please do not hesitate to visit us again at "
+                f"{site_url}.",
             ]
         )
         visitor_sent = send_email(
-            f"{project.name} - Your Chat Summary",
+            f"{project.name} - Your Chat Transcript",
             visitor_body,
             to_list=[conversation.visitor_email],
             attachments=[attachment],
