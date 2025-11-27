@@ -20,7 +20,7 @@
   const AUTO_OPEN_DELAY_MS = Number(scriptEl.dataset.autoOpenDelayMs || 10000);
   const AUTO_WELCOME_MESSAGE =
     scriptEl.dataset.autoWelcomeMessage ||
-    "Thanks for visiting us! Let me know how I can help.";
+    "Thanks for visiting us!";
   const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 70000);
   const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
   const WARNING_MESSAGE =
