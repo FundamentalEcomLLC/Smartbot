@@ -19,6 +19,12 @@ class Conversation(TimestampMixin, Base):
 
     project = relationship("Project", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all,delete")
+    state = relationship(
+        "ConversationState",
+        back_populates="conversation",
+        uselist=False,
+        cascade="all,delete",
+    )
 
 
 class Message(TimestampMixin, Base):

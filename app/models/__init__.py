@@ -6,6 +6,7 @@ from .chunk import Chunk
 from .bot_config import BotConfig
 from .custom_qa import CustomQA
 from .conversation import Conversation, Message
+from .conversation_state import ConversationState
 from .integration_config import IntegrationConfig
 from .project_transcript_recipient import ProjectTranscriptRecipient
 
@@ -19,6 +20,7 @@ __all__ = [
     "CustomQA",
     "Conversation",
     "Message",
+    "ConversationState",
     "IntegrationConfig",
     "ProjectTranscriptRecipient",
 ]
