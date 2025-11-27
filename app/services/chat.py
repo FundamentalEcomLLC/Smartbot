@@ -1,7 +1,11 @@
+import hashlib
 import logging
 import random
 import re
+import secrets
+import string
 import time
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, Iterable, List, Optional
 
@@ -13,6 +17,7 @@ from ..config import get_settings
 from ..enums import MessageRole
 from ..models import BotConfig, Conversation, ConversationState, Message, Project
 from .cache import cache
+from .email_utils import send_email
 from .embeddings import embed_texts
 from .integrations import IntegrationEvent, emit_integration_events
 from .rag import fetch_custom_qas, fetch_relevant_chunks
@@ -56,6 +61,35 @@ _PHONE_DECLINE_PATTERNS = (
     "not necessary",
 )
 _GOAL_HINT_KEYWORDS = ("need", "want", "goal", "looking", "trying", "just")
+_OTP_CODE_LENGTH = 6
+_OTP_TTL_MINUTES = 15
+_OTP_MAX_ATTEMPTS = 5
+_HISTORY_YES_TOKENS = (
+    "yes",
+    "yeah",
+    "yep",
+    "sure",
+    "please do",
+    "please",
+    "go ahead",
+    "use it",
+    "pull it in",
+    "reference it",
+)
+_HISTORY_NO_TOKENS = (
+    "no",
+    "nope",
+    "nah",
+    "start fresh",
+    "start over",
+    "new conversation",
+    "don't",
+    "skip",
+    "rather not",
+)
+_HISTORY_FAILURE_TEXT = (
+    "No problem, we’ll just continue without using your previous chat history. What would you like to focus on right now?"
+)
 
 
 class ChatError(Exception):
@@ -74,6 +108,16 @@ class SessionState:
     sandler_stage: str = "greeting"
     last_question_type: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    otp_email: Optional[str] = None
+    otp_status: str = "not_required"
+    otp_code_hash: Optional[str] = None
+    otp_attempts: int = 0
+    otp_expires_at: Optional[datetime] = None
+    otp_last_sent_at: Optional[datetime] = None
+    otp_failure_reason: Optional[str] = None
+    otp_verified_at: Optional[datetime] = None
+    otp_consent_status: str = "not_requested"
+    otp_consent_prompted_at: Optional[datetime] = None
 
     def summary_bits(self) -> List[str]:
         bits: List[str] = []
@@ -107,6 +151,16 @@ def _state_from_model(model: ConversationState | None) -> SessionState:
         sandler_stage=model.sandler_stage or "greeting",
         last_question_type=model.last_question_type,
         metadata=dict(model.metadata_json or {}),
+        otp_email=model.otp_email,
+        otp_status=model.otp_status or "not_required",
+        otp_code_hash=model.otp_code_hash,
+        otp_attempts=model.otp_attempts or 0,
+        otp_expires_at=model.otp_expires_at,
+        otp_last_sent_at=model.otp_last_sent_at,
+        otp_failure_reason=model.otp_failure_reason,
+        otp_verified_at=model.otp_verified_at,
+        otp_consent_status=model.otp_consent_status or "not_requested",
+        otp_consent_prompted_at=model.otp_consent_prompted_at,
     )
 
 
@@ -121,6 +175,16 @@ def _apply_state_to_model(model: ConversationState, state: SessionState) -> None
     model.sandler_stage = state.sandler_stage
     model.last_question_type = state.last_question_type
     model.metadata_json = state.metadata or None
+    model.otp_email = state.otp_email
+    model.otp_status = state.otp_status
+    model.otp_code_hash = state.otp_code_hash
+    model.otp_attempts = state.otp_attempts
+    model.otp_expires_at = state.otp_expires_at
+    model.otp_last_sent_at = state.otp_last_sent_at
+    model.otp_failure_reason = state.otp_failure_reason
+    model.otp_verified_at = state.otp_verified_at
+    model.otp_consent_status = state.otp_consent_status
+    model.otp_consent_prompted_at = state.otp_consent_prompted_at
 
 
 def _load_session_state(db: Session, conversation: Conversation) -> tuple[ConversationState, SessionState]:
@@ -141,6 +205,74 @@ def _save_session_state(
     db.commit()
     if refresh_conversation:
         db.refresh(model.conversation)
+
+
+@dataclass
+class OTPResult:
+    allow_history: bool
+    should_halt: bool = False
+    bot_reply: Optional[str] = None
+    state_dirty: bool = False
+    status: str = "not_required"
+    just_verified: bool = False
+
+
+@dataclass
+class HistoryConsentResult:
+    should_halt: bool = False
+    bot_reply: Optional[str] = None
+    state_dirty: bool = False
+    trigger_otp_send: bool = False
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _reset_otp_state(state: SessionState, *, reset_consent: bool = True) -> None:
+    state.otp_email = None
+    state.otp_status = "not_required"
+    state.otp_code_hash = None
+    state.otp_attempts = 0
+    state.otp_expires_at = None
+    state.otp_last_sent_at = None
+    state.otp_failure_reason = None
+    state.otp_verified_at = None
+    if reset_consent:
+        state.otp_consent_status = "not_requested"
+        state.otp_consent_prompted_at = None
+    state.metadata.pop("otp_failure_announced", None)
+
+
+def _hash_otp_code(code: str) -> str:
+    secret = _settings.secret_key.get_secret_value()
+    return hashlib.sha256(f"{code}:{secret}".encode("utf-8")).hexdigest()
+
+
+def _generate_otp_code(length: int = _OTP_CODE_LENGTH) -> str:
+    return "".join(secrets.choice(string.digits) for _ in range(length))
+
+
+def _extract_otp_from_text(text: str) -> Optional[str]:
+    digits = re.sub(r"\D", "", text or "")
+    return digits if len(digits) == _OTP_CODE_LENGTH else None
+
+
+def _history_email(conversation: Conversation, state: SessionState) -> Optional[str]:
+    return conversation.visitor_email or state.email
+
+
+def _interpret_history_consent(text: str) -> str:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return "unknown"
+    for token in _HISTORY_YES_TOKENS:
+        if token in lowered:
+            return "yes"
+    for token in _HISTORY_NO_TOKENS:
+        if token in lowered:
+            return "no"
+    return "unknown"
 
 
 def _apply_typing_delay(sample: str, *, cps: float = 28.0) -> None:
@@ -374,6 +506,110 @@ def _session_state_instruction(state: SessionState) -> Optional[str]:
     return f"Session memory:\n{details}\n{extras}\n{instructions}"
 
 
+def _handle_history_consent(
+    session_state: SessionState,
+    conversation: Conversation,
+    *,
+    has_prior_sessions: bool,
+    user_message: str,
+) -> HistoryConsentResult:
+    result = HistoryConsentResult()
+    email = _history_email(conversation, session_state)
+    status = session_state.otp_consent_status or "not_requested"
+    tracked_email = session_state.metadata.get("otp_history_email")
+
+    if email and tracked_email != email:
+        session_state.metadata["otp_history_email"] = email
+        if status != "not_requested":
+            _reset_otp_state(session_state, reset_consent=False)
+            session_state.otp_consent_status = "not_requested"
+            session_state.otp_consent_prompted_at = None
+            status = "not_requested"
+            result.state_dirty = True
+
+    if not email or not has_prior_sessions:
+        if status != "not_requested":
+            session_state.otp_consent_status = "not_requested"
+            session_state.otp_consent_prompted_at = None
+            result.state_dirty = True
+        return result
+
+    if status == "declined":
+        decision = _interpret_history_consent(user_message)
+        if decision == "yes":
+            session_state.otp_consent_status = "pending"
+            session_state.otp_consent_prompted_at = _now()
+            result.state_dirty = True
+            result.bot_reply = (
+                "Sure thing. Do you want me to pull in your previous conversation, or would you prefer to start fresh today?\n\n"
+                "If you’d like me to reference it, I’ll send a quick one-time verification code to that email."
+            )
+            result.should_halt = True
+            return result
+        return result
+
+    if status == "not_requested":
+        session_state.otp_consent_status = "pending"
+        session_state.otp_consent_prompted_at = _now()
+        result.state_dirty = True
+        result.bot_reply = (
+            "Thanks for sharing your email. It looks like you’ve reached out to us before using this address. "
+            "Do you want me to pull in your previous conversation, or would you prefer to start fresh today?\n\n"
+            "Just a heads-up: if you’d like me to reference the previous chat, I’ll need to send a one-time verification "
+            "code (OTP) to this email to confirm it’s really you."
+        )
+        result.should_halt = True
+        return result
+
+    if status == "pending":
+        decision = _interpret_history_consent(user_message)
+        if decision == "yes":
+            session_state.otp_consent_status = "granted"
+            session_state.otp_consent_prompted_at = None
+            result.state_dirty = True
+            result.bot_reply = (
+                "Great, I’ll send a one-time verification code to that email now. Once you enter it here, "
+                "I can pull up your previous conversation so we don’t have to start from scratch."
+            )
+            result.should_halt = True
+            result.trigger_otp_send = True
+            return result
+        if decision == "no":
+            session_state.otp_consent_status = "declined"
+            session_state.otp_consent_prompted_at = None
+            _reset_otp_state(session_state, reset_consent=False)
+            result.state_dirty = True
+            result.bot_reply = (
+                "Got it, we’ll start fresh. Let’s focus on what you need right now. What would you like to work on?"
+            )
+            result.should_halt = True
+            return result
+        result.bot_reply = (
+            "No problem—just let me know if you’d like me to pull in your previous conversation or start fresh today."
+        )
+        result.should_halt = True
+        return result
+
+    return result
+
+
+def _has_prior_sessions(db: Session, project_id: int, conversation: Conversation) -> bool:
+    email = conversation.visitor_email
+    if not email:
+        return False
+    match = (
+        db.query(Conversation.id)
+        .filter(
+            Conversation.project_id == project_id,
+            Conversation.id != conversation.id,
+            Conversation.visitor_email == email,
+        )
+        .limit(1)
+        .first()
+    )
+    return match is not None
+
+
 def _collect_previous_conversation_context(
     db: Session,
     project_id: int,
@@ -434,6 +670,181 @@ def _collect_previous_conversation_context(
             }
         )
     return contexts
+
+
+def _create_and_send_otp(
+    project: Project,
+    conversation: Conversation,
+    session_state: SessionState,
+    *,
+    email: str,
+    now: datetime,
+) -> bool:
+    code = _generate_otp_code()
+    email_subject = f"{project.name} chat verification code"
+    greeting = conversation.visitor_name or session_state.name or "there"
+    email_body = (
+        f"Hi {greeting},\n\n"
+        "Use this one-time code to verify your identity so we can securely share your previous chat history:\n\n"
+        f"{code}\n\n"
+        f"This code expires in {_OTP_TTL_MINUTES} minutes."
+    )
+    if not send_email(email_subject, email_body, to_list=[email]):
+        session_state.otp_status = "send_failed"
+        session_state.otp_failure_reason = "smtp_error"
+        session_state.metadata.pop("otp_failure_announced", None)
+        return False
+    session_state.otp_email = email
+    session_state.otp_status = "pending"
+    session_state.otp_code_hash = _hash_otp_code(code)
+    session_state.otp_attempts = 0
+    session_state.otp_expires_at = now + timedelta(minutes=_OTP_TTL_MINUTES)
+    session_state.otp_last_sent_at = now
+    session_state.otp_failure_reason = None
+    session_state.metadata.pop("otp_failure_announced", None)
+    return True
+
+
+def _shorten_snippet(text: str, max_len: int = 150) -> str:
+    collapsed = " ".join((text or "").split())
+    if len(collapsed) <= max_len:
+        return collapsed
+    return collapsed[: max_len - 3].rstrip() + "..."
+
+
+def _previous_chat_summary(
+    db: Session,
+    project_id: int,
+    conversation: Conversation,
+) -> Optional[str]:
+    email = conversation.visitor_email
+    if not email:
+        return None
+    prev = (
+        db.query(Conversation)
+        .filter(
+            Conversation.project_id == project_id,
+            Conversation.id != conversation.id,
+            Conversation.visitor_email == email,
+        )
+        .order_by(Conversation.updated_at.desc())
+        .first()
+    )
+    if not prev:
+        return None
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == prev.id)
+        .order_by(Message.created_at.asc())
+        .limit(50)
+        .all()
+    )
+    if not messages:
+        if prev.updated_at:
+            return f"your chat from {prev.updated_at.strftime('%b %d %Y')}"
+        return "your earlier chat"
+    user_msgs = [m.content for m in messages if m.role == MessageRole.USER and m.content]
+    assistant_msgs = [m.content for m in messages if m.role == MessageRole.ASSISTANT and m.content]
+    parts: list[str] = []
+    if user_msgs:
+        parts.append(f"you opened by saying \"{_shorten_snippet(user_msgs[0], 90)}\"")
+    if assistant_msgs:
+        parts.append(f"I shared \"{_shorten_snippet(assistant_msgs[-1], 90)}\"")
+    if not parts:
+        parts.append("we exchanged a few notes about your project")
+    return " and ".join(parts)
+
+
+def _build_history_success_message(summary: Optional[str]) -> str:
+    snippet = summary or "your earlier chat"
+    return (
+        f"You’re verified, thanks. Previously, we talked about {snippet}. "
+        "Would you like to continue from there or adjust anything based on where you’re at now?"
+    )
+
+
+def _handle_otp_gate(
+    project: Project,
+    conversation: Conversation,
+    session_state: SessionState,
+    *,
+    has_prior_sessions: bool,
+    user_message: str,
+) -> OTPResult:
+    email = conversation.visitor_email or session_state.email
+    requires_otp = bool(email) and has_prior_sessions
+    state_dirty = False
+    now = _now()
+
+    if not requires_otp:
+        if session_state.otp_status != "not_required" or session_state.otp_email:
+            _reset_otp_state(session_state)
+            state_dirty = True
+        return OTPResult(True, state_dirty=state_dirty, status="not_required")
+
+    if session_state.otp_consent_status != "granted":
+        return OTPResult(False, state_dirty=state_dirty, status="consent_not_granted")
+
+    if email and session_state.otp_email and session_state.otp_email != email:
+        _reset_otp_state(session_state, reset_consent=False)
+        state_dirty = True
+
+    def fail(reason: str) -> OTPResult:
+        _reset_otp_state(session_state, reset_consent=False)
+        session_state.otp_consent_status = "declined"
+        session_state.otp_consent_prompted_at = None
+        session_state.otp_failure_reason = reason
+        return OTPResult(
+            False,
+            True,
+            _HISTORY_FAILURE_TEXT,
+            state_dirty=True,
+            status=reason,
+        )
+
+    if session_state.otp_code_hash and session_state.otp_expires_at and session_state.otp_expires_at <= now:
+        return fail("expired")
+
+    otp_code = _extract_otp_from_text(user_message)
+    if otp_code and session_state.otp_code_hash:
+        hashed = _hash_otp_code(otp_code)
+        if hashed == session_state.otp_code_hash:
+            session_state.otp_status = "verified"
+            session_state.otp_verified_at = now
+            session_state.otp_code_hash = None
+            session_state.otp_attempts = 0
+            session_state.otp_failure_reason = None
+            state_dirty = True
+            return OTPResult(True, True, None, state_dirty=state_dirty, status="verified", just_verified=True)
+        session_state.otp_attempts += 1
+        state_dirty = True
+        if session_state.otp_attempts >= _OTP_MAX_ATTEMPTS:
+            return fail("max_attempts")
+        reminder = (
+            f"That code didn’t match what we sent to {email}. Please double-check and enter the 6-digit code."
+            if email
+            else "That code didn’t match. Please re-enter the 6-digit verification code."
+        )
+        return OTPResult(False, True, reminder, state_dirty=state_dirty, status="pending")
+
+    if not session_state.otp_code_hash:
+        if not email:
+            return fail("missing_email")
+        if not _create_and_send_otp(project, conversation, session_state, email=email, now=now):
+            return fail("send_failed")
+        state_dirty = True
+        prompt = (
+            f"For your privacy, I emailed a 6-digit code to {email}. "
+            "Please type it here so I can pull up our previous chats."
+        )
+        return OTPResult(False, True, prompt, state_dirty=state_dirty, status="pending")
+
+    reminder = (
+        f"I still need the 6-digit code we sent to {email}. Please enter it here so I can load our previous chats."
+        if email
+        else "I still need the 6-digit verification code we sent."
+    )
+    return OTPResult(False, True, reminder, state_dirty=state_dirty, status="pending")
 
 
 def _get_or_create_conversation(
@@ -567,6 +978,117 @@ def stream_chat_response(
     if state_dirty:
         _save_session_state(db, state_model, session_state)
 
+    has_prior_sessions = _has_prior_sessions(db, project.id, conversation)
+    consent_result = _handle_history_consent(
+        session_state,
+        conversation,
+        has_prior_sessions=has_prior_sessions,
+        user_message=user_message,
+    )
+    otp_send_state_dirty = False
+    if consent_result.trigger_otp_send:
+        email_for_otp = _history_email(conversation, session_state)
+        if email_for_otp and _create_and_send_otp(
+            project,
+            conversation,
+            session_state,
+            email=email_for_otp,
+            now=_now(),
+        ):
+            otp_send_state_dirty = True
+        else:
+            _reset_otp_state(session_state, reset_consent=False)
+            session_state.otp_consent_status = "declined"
+            session_state.otp_consent_prompted_at = None
+            consent_result.bot_reply = _HISTORY_FAILURE_TEXT
+            consent_result.should_halt = True
+            consent_result.trigger_otp_send = False
+            otp_send_state_dirty = True
+
+    if consent_result.state_dirty or otp_send_state_dirty:
+        _save_session_state(db, state_model, session_state)
+
+    if consent_result.should_halt and consent_result.bot_reply:
+        reply = consent_result.bot_reply
+        _apply_typing_delay(reply)
+        yield reply
+        _save_message(db, conversation, MessageRole.ASSISTANT, reply)
+        emit_integration_events(
+            db,
+            project,
+            conversation,
+            IntegrationEvent.BOT_REPLY,
+            reply,
+            page_url,
+        )
+        return
+
+    if (
+        session_state.otp_consent_status == "granted"
+        and not _extract_otp_from_text(user_message)
+        and _interpret_history_consent(user_message) == "no"
+    ):
+        session_state.otp_consent_status = "declined"
+        session_state.otp_consent_prompted_at = None
+        _reset_otp_state(session_state, reset_consent=False)
+        _save_session_state(db, state_model, session_state)
+        reply = _HISTORY_FAILURE_TEXT
+        _apply_typing_delay(reply)
+        yield reply
+        _save_message(db, conversation, MessageRole.ASSISTANT, reply)
+        emit_integration_events(
+            db,
+            project,
+            conversation,
+            IntegrationEvent.BOT_REPLY,
+            reply,
+            page_url,
+        )
+        return
+
+    otp_history_allowed = False
+    if session_state.otp_consent_status == "granted":
+        otp_result = _handle_otp_gate(
+            project,
+            conversation,
+            session_state,
+            has_prior_sessions=has_prior_sessions,
+            user_message=user_message,
+        )
+        otp_history_allowed = otp_result.allow_history
+        if otp_result.state_dirty:
+            _save_session_state(db, state_model, session_state)
+        if otp_result.just_verified:
+            success_summary = _previous_chat_summary(db, project.id, conversation)
+            success_reply = _build_history_success_message(success_summary)
+            _apply_typing_delay(success_reply)
+            yield success_reply
+            _save_message(db, conversation, MessageRole.ASSISTANT, success_reply)
+            emit_integration_events(
+                db,
+                project,
+                conversation,
+                IntegrationEvent.BOT_REPLY,
+                success_reply,
+                page_url,
+            )
+            return
+        if otp_result.should_halt:
+            reply = otp_result.bot_reply or "Please use the 6-digit code we emailed to continue."
+            _apply_typing_delay(reply)
+            yield reply
+            _save_message(db, conversation, MessageRole.ASSISTANT, reply)
+            emit_integration_events(
+                db,
+                project,
+                conversation,
+                IntegrationEvent.BOT_REPLY,
+                reply,
+                page_url,
+            )
+            return
+
+
     if _user_complaining_about_repetition(user_message):
         reply = _build_repetition_reply(session_state)
         session_state.sandler_stage = "solution"
@@ -634,7 +1156,9 @@ def stream_chat_response(
         },
     ]
 
-    previous_sessions = _collect_previous_conversation_context(db, project.id, conversation)
+    previous_sessions: List[Dict[str, str]] = []
+    if otp_history_allowed:
+        previous_sessions = _collect_previous_conversation_context(db, project.id, conversation)
     messages.extend(previous_sessions)
 
     for past in chat_history:
