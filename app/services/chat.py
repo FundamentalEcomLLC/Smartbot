@@ -938,6 +938,9 @@ def stream_chat_response(
         extra_instructions.append(bot_config.additional_instructions)
     if learning_instruction := _learning_tone_instruction(project):
         extra_instructions.append(learning_instruction)
+    extra_instructions.append(
+        "When you share any URL, show the full link in plain text (e.g., https://example.com) and do not wrap it in markdown link syntax."
+    )
     system_messages: List[Dict[str, str]] = [
         {
             "role": "system",
