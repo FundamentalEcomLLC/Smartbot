@@ -780,13 +780,13 @@ def _previous_chat_summary(
 
 
 def _build_history_success_message(summary_points: Optional[list[str]]) -> str:
-    points = summary_points or ["We discussed your goals and the follow-up plan."]
+    points = summary_points or ["We briefly connected but didn’t go into much detail at that time."]
     bullets = "\n".join(f"- {point}" for point in points)
     return (
-        "You’re all verified—thanks for double-checking.\n\n"
-        "Here’s what we covered last time:\n"
+        "You’re successfully verified—thank you.\n\n"
+        "Here’s a quick summary of our previous conversation:\n"
         f"{bullets}\n\n"
-        "Does that still match where you’re at today, or should we adjust anything before moving forward?"
+        "Would you like to continue from where we left off?"
     )
 
 
