@@ -54,20 +54,24 @@ def _clip(text: str, max_len: int = 240) -> str:
 def _summarize_conversation(conversation: Conversation, messages: Iterable[Message]) -> str:
     user_msgs = [m.content.strip() for m in messages if m.role == MessageRole.USER and m.content]
     assistant_msgs = [m.content.strip() for m in messages if m.role == MessageRole.ASSISTANT and m.content]
-    summary_parts: list[str] = []
+    summary_points: list[str] = []
     visitor_label = conversation.visitor_name or "The visitor"
+    if messages:
+        first_timestamp = messages[0].created_at
+        if first_timestamp:
+            summary_points.append(f"Conversation date: {first_timestamp.strftime('%b %d, %Y %I:%M %p %Z')}")
     if user_msgs:
-        summary_parts.append(f"{visitor_label} opened the chat saying \"{_clip(user_msgs[0])}\".")
+        summary_points.append(f"Opening note from {visitor_label}: {_clip(user_msgs[0])}")
         if len(user_msgs) > 1:
-            summary_parts.append(f"Later they added \"{_clip(user_msgs[-1])}\".")
+            summary_points.append(f"Latest visitor update: {_clip(user_msgs[-1])}")
     if assistant_msgs:
-        summary_parts.append(
-            "Our assistant responded with guidance such as \"{}\".".format(_clip(assistant_msgs[-1]))
-        )
-    if not summary_parts:
-        return "No substantive conversation content was recorded."
-    summary_parts.append("We'll follow up with the visitor to keep the next steps moving.")
-    return " ".join(summary_parts)
+        summary_points.append(f"Assistant guidance / next step: {_clip(assistant_msgs[-1])}")
+    if conversation.visitor_email:
+        summary_points.append(f"Contact captured: {conversation.visitor_email}")
+    if not summary_points:
+        summary_points.append("No substantive conversation content was recorded.")
+    summary_points.append("Follow-up needed: review transcript and respond if the visitor doesn’t reconnect.")
+    return "\n".join(f"- {point}" for point in summary_points)
 
 
 def _build_transcript_attachment(conversation: Conversation, messages: Iterable[Message]) -> dict:

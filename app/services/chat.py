@@ -809,6 +809,10 @@ def _handle_otp_gate(
             state_dirty = True
         return OTPResult(True, state_dirty=state_dirty, status="not_required")
 
+    if session_state.otp_status == "verified":
+        # Already verified during this conversation; no need to re-request.
+        return OTPResult(True, state_dirty=state_dirty, status="verified")
+
     if session_state.otp_consent_status != "granted":
         return OTPResult(False, state_dirty=state_dirty, status="consent_not_granted")
 
