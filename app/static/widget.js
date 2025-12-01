@@ -21,7 +21,7 @@
   const AUTO_WELCOME_MESSAGE =
     scriptEl.dataset.autoWelcomeMessage ||
     "Thanks for visiting us!";
-  const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 70000);
+  const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 120000);
   const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
   const WARNING_MESSAGE =
     scriptEl.dataset.inactivityWarningMessage ||
