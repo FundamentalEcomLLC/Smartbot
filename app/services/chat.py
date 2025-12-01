@@ -87,6 +87,19 @@ _HISTORY_NO_TOKENS = (
     "skip",
     "rather not",
 )
+_HISTORY_REQUEST_PATTERNS = (
+    "previous conversation",
+    "previous chat",
+    "last chat",
+    "last conversation",
+    "earlier conversation",
+    "old chat",
+    "past chat",
+    "pick up where we left",
+    "continue where we left",
+    "pull up my chat",
+    "pull up my conversation",
+)
 _HISTORY_FAILURE_TEXT = (
     "No problem, we’ll just continue without using your previous chat history. What would you like to focus on right now?"
 )
@@ -266,12 +279,15 @@ def _interpret_history_consent(text: str) -> str:
     lowered = (text or "").strip().lower()
     if not lowered:
         return "unknown"
-    for token in _HISTORY_YES_TOKENS:
-        if token in lowered:
-            return "yes"
     for token in _HISTORY_NO_TOKENS:
         if token in lowered:
             return "no"
+    for phrase in _HISTORY_REQUEST_PATTERNS:
+        if phrase in lowered:
+            return "yes"
+    for token in _HISTORY_YES_TOKENS:
+        if token in lowered:
+            return "yes"
     return "unknown"
 
 
@@ -716,10 +732,10 @@ def _previous_chat_summary(
     db: Session,
     project_id: int,
     conversation: Conversation,
-) -> Optional[str]:
+) -> list[str]:
     email = conversation.visitor_email
     if not email:
-        return None
+        return []
     prev = (
         db.query(Conversation)
         .filter(
@@ -731,7 +747,7 @@ def _previous_chat_summary(
         .first()
     )
     if not prev:
-        return None
+        return []
     messages = (
         db.query(Message)
         .filter(Message.conversation_id == prev.id)
@@ -739,27 +755,38 @@ def _previous_chat_summary(
         .limit(50)
         .all()
     )
+    summary_points: list[str] = []
+    if prev.updated_at:
+        summary_points.append(
+            f"Date noted: {prev.updated_at.strftime('%b %d, %Y')} (local time)."
+        )
     if not messages:
-        if prev.updated_at:
-            return f"your chat from {prev.updated_at.strftime('%b %d %Y')}"
-        return "your earlier chat"
+        summary_points.append("General check-in about your goals and next steps.")
+        return summary_points
     user_msgs = [m.content for m in messages if m.role == MessageRole.USER and m.content]
     assistant_msgs = [m.content for m in messages if m.role == MessageRole.ASSISTANT and m.content]
-    parts: list[str] = []
     if user_msgs:
-        parts.append(f"you opened by saying \"{_shorten_snippet(user_msgs[0], 90)}\"")
+        opener = _shorten_snippet(user_msgs[0], 110)
+        summary_points.append(f"Visitor opened with: {opener}.")
+        if len(user_msgs) > 1:
+            recent = _shorten_snippet(user_msgs[-1], 110)
+            summary_points.append(f"Most recent visitor update: {recent}.")
     if assistant_msgs:
-        parts.append(f"I shared \"{_shorten_snippet(assistant_msgs[-1], 90)}\"")
-    if not parts:
-        parts.append("we exchanged a few notes about your project")
-    return " and ".join(parts)
+        closing = _shorten_snippet(assistant_msgs[-1], 120)
+        summary_points.append(f"Assistant guidance: {closing}.")
+    if not summary_points:
+        summary_points.append("Conversation captured general project requirements and next steps.")
+    return summary_points
 
 
-def _build_history_success_message(summary: Optional[str]) -> str:
-    snippet = summary or "your earlier chat"
+def _build_history_success_message(summary_points: Optional[list[str]]) -> str:
+    points = summary_points or ["We discussed your goals and the follow-up plan."]
+    bullets = "\n".join(f"- {point}" for point in points)
     return (
-        f"You’re verified, thanks. Previously, we talked about {snippet}. "
-        "Would you like to continue from there or adjust anything based on where you’re at now?"
+        "You’re all verified—thanks for double-checking.\n\n"
+        "Here’s what we covered last time:\n"
+        f"{bullets}\n\n"
+        "Does that still match where you’re at today, or should we adjust anything before moving forward?"
     )
 
 
