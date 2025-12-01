@@ -307,6 +307,9 @@
       color: var(--cc-dark);
       font-size: 0.95rem;
       line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .chatbot-message.user .chatbot-bubble {
       background: var(--cc-primary);
