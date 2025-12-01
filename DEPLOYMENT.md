@@ -57,15 +57,16 @@ vercel --prod
 
 Vercel installs the dependencies declared in `requirements.txt` (including `mangum`) and builds the serverless function automatically.
 
-## 5. Database migrations
+## 5. Database migrations & health checks
 
-Vercel's serverless runtime is ephemeral, so run Alembic migrations from your local machine or CI:
+1. **Vercel serverless auto-migrations** – `api/index.py` runs `alembic upgrade head` once per cold start before the FastAPI app is imported. Every deployment (or cold boot) therefore migrates Neon automatically, provided all `alembic/versions/*.py` files are committed.
+2. **Containers / workers** – `scripts/runserver.py` runs the same Alembic command whenever `RUN_DB_MIGRATIONS=1`. Keep that env var enabled in Docker Compose, ECS, etc., so restarts always apply pending migrations before Gunicorn starts.
+3. **Neon branch hygiene** – when cloning or resetting a branch, run `alembic upgrade head` (or start the container once with `RUN_DB_MIGRATIONS=1`) *before* updating Vercel's `DATABASE_URL`. Avoid manual `DROP SCHEMA` unless you immediately reapply migrations.
+4. **CI/CD smoke test** – run `python scripts/smoke_test.py` (or add the command to GitHub Actions) to verify that:
+	- Alembic knows about the current revision (`alembic current`)
+	- The `projects` table exists and responds to a simple `SELECT`
 
-```bash
-alembic upgrade head
-```
-
-The command must run against the same `DATABASE_URL` you configured for Vercel.
+The smoke test uses whatever `DATABASE_URL` is in the environment, so point it at the branch you are about to promote.
 
 ## 6. Post-deploy checks
 
@@ -74,3 +75,9 @@ The command must run against the same `DATABASE_URL` you configured for Vercel.
 3. Monitor the Vercel logs: `vercel logs <deployment-url> --since 1h`.
 
 With these steps the full FastAPI application—routers, templates, and static files—runs on Vercel's serverless infrastructure.
+
+## 7. Neon branch hygiene
+
+- Avoid manual `DROP SCHEMA` or full branch resets in production unless you immediately re-run all migrations.
+- Keep a naming convention for temporary branches so it's obvious which ones are safe to delete or reset.
+- Before promoting a new branch or failover, run `alembic upgrade head` against it and run the smoke test mentioned above (`python scripts/smoke_test.py`).

@@ -79,7 +79,7 @@ def main() -> None:
     project_id = args.project_id or _prompt_int("Enter the project ID to crawl: ")
 
     with SessionLocal() as db:
-        project: Project | None = db.get(Project, project_id)
+        project = db.get(Project, project_id)
         if not project:
             raise SystemExit(f"Project {project_id} was not found")
 

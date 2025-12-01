@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import sys
 import os
 import subprocess
+import sys
 import threading
 from pathlib import Path
+
+from mangum import Mangum
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 _alembic_lock = threading.Lock()

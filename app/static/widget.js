@@ -506,20 +506,8 @@
   }
 
   function maybeScheduleAutoOpen(panel, messagesEl, statusChip) {
-    if (AUTO_OPEN_DELAY_MS <= 0 || hasAutoOpened()) {
-      return;
-    }
-    window.setTimeout(() => {
-      if (hasAutoOpened()) {
-        return;
-      }
-      if (state.isOpen || document.hidden) {
-        markAutoOpened();
-        return;
-      }
-      markAutoOpened();
-      runAutoWelcome(panel, messagesEl, statusChip);
-    }, AUTO_OPEN_DELAY_MS);
+    /* Auto-open disabled: require explicit user click to launch chat */
+    return;
   }
 
   function clearInactivityTimers() {
