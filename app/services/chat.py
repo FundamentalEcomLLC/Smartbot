@@ -923,13 +923,23 @@ def stream_chat_response(
         session_id,
         user_message,
     )
+    conversation, is_new = _get_or_create_conversation(db, project, session_id)
+    has_prior_messages = (
+        db.query(Message.id)
+        .filter(Message.conversation_id == conversation.id)
+        .limit(1)
+        .first()
+        is not None
+    )
+
     cache_key = f"{project.id}:{normalized_question}"
-    cached = cache.get(cache_key)
-    if cached:
-        logger.info("Cache hit for project %s question '%s'", project.id, normalized_question)
-        _apply_typing_delay(cached)
-        yield cached
-        return
+    if not has_prior_messages:
+        cached = cache.get(cache_key)
+        if cached:
+            logger.info("Cache hit for project %s question '%s'", project.id, normalized_question)
+            _apply_typing_delay(cached)
+            yield cached
+            return
 
     bot_config: BotConfig = project.bot_config or BotConfig(system_prompt="You are a helpful assistant.")
     system_prompt = bot_config.system_prompt or "You are a helpful assistant."
@@ -940,6 +950,9 @@ def stream_chat_response(
         extra_instructions.append(learning_instruction)
     extra_instructions.append(
         "When you share any URL, show the full link in plain text (e.g., https://example.com) and do not wrap it in markdown link syntax."
+    )
+    extra_instructions.append(
+        "Sound like a real human teammate: vary greetings, use natural contractions or casual phrases when appropriate (e.g., 'lemme' for 'let me'), and avoid repeating the exact same sentence if the visitor repeats themselves."
     )
     system_messages: List[Dict[str, str]] = [
         {
@@ -961,7 +974,6 @@ def stream_chat_response(
         project.id,
         system_prompt[:200].replace("\n", " "),
     )
-    conversation, is_new = _get_or_create_conversation(db, project, session_id)
     state_model, session_state = _load_session_state(db, conversation)
     state_dirty = False
 
