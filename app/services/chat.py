@@ -985,6 +985,9 @@ def stream_chat_response(
     extra_instructions.append(
         "Sound like a real human teammate: vary greetings, use natural contractions or casual phrases when appropriate (e.g., 'lemme' for 'let me'), and avoid repeating the exact same sentence if the visitor repeats themselves."
     )
+    extra_instructions.append(
+        "Avoid markdown styling (no **bold**, _italics_, or similar). Present service names and lists as clear plain text so they render cleanly in the chat widget."
+    )
     system_messages: List[Dict[str, str]] = [
         {
             "role": "system",
