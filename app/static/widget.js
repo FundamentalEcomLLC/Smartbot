@@ -21,14 +21,6 @@
   const AUTO_WELCOME_MESSAGE =
     scriptEl.dataset.autoWelcomeMessage ||
     "Thanks for visiting us!";
-  const INACTIVITY_WARNING_MS = Number(scriptEl.dataset.inactivityWarningMs || 120000);
-  const INACTIVITY_CLOSE_MS = Number(scriptEl.dataset.inactivityCloseMs || 60000);
-  const WARNING_MESSAGE =
-    scriptEl.dataset.inactivityWarningMessage ||
-    "Just checking in - I'll close the chat soon if I don't hear back.";
-  const CLOSE_MESSAGE =
-    scriptEl.dataset.inactivityCloseMessage ||
-    "I'll close our chat for now. Feel free to start a new one anytime!";
   const sizePresets = [
     { id: "compact", label: "Compact", width: 320, height: 420 },
     { id: "comfort", label: "Comfort", width: 380, height: 520 },
@@ -43,9 +35,6 @@
     customSize: null,
     panelSize: null,
     isResizing: false,
-    inactivityTimer: null,
-    closeTimer: null,
-    warningShown: false,
     hasConversation: false,
     panelEl: null,
     messagesEl: null,
@@ -513,17 +502,6 @@
     return;
   }
 
-  function clearInactivityTimers() {
-    if (state.inactivityTimer) {
-      clearTimeout(state.inactivityTimer);
-      state.inactivityTimer = null;
-    }
-    if (state.closeTimer) {
-      clearTimeout(state.closeTimer);
-      state.closeTimer = null;
-    }
-  }
-
   async function closeSessionRequest(options = {}) {
     const {
       sessionId: explicitSessionId,
@@ -573,8 +551,6 @@
   }
 
   async function closeChat(panel, messagesEl, reason = "user_closed") {
-    clearInactivityTimers();
-    state.warningShown = false;
     state.hasConversation = false;
     await closeSessionRequest();
     messagesEl.innerHTML = "";
@@ -603,8 +579,6 @@
       return;
     }
     state.isSending = true;
-    state.warningShown = false;
-    clearInactivityTimers();
     inputEl.value = "";
     appendMessage(messagesEl, "user", text);
     const assistantBubble = appendMessage(messagesEl, "assistant", "...");
@@ -822,7 +796,6 @@
       }
       persistSessionState();
       closeSessionRequest({ useBeacon: true, preserveStorage: true }).catch(() => {});
-      clearInactivityTimers();
     });
   }
 
