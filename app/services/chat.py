@@ -105,241 +105,6 @@ _HISTORY_REQUEST_PATTERNS = (
 _HISTORY_FAILURE_TEXT = (
     "No problem, we’ll just continue without using your previous chat history. What would you like to focus on right now?"
 )
-
-_LEAD_NAME_REFUSALS = (
-    "prefer not to share my name",
-    "prefer not to give my name",
-    "dont want to share my name",
-    "don't want to share my name",
-    "rather not share my name",
-    "no name",
-    "keep my name private",
-    "stay anonymous",
-    "no need for my name",
-)
-_LEAD_EMAIL_REFUSALS = (
-    "dont want to share my email",
-    "don't want to share my email",
-    "no email",
-    "no need for email",
-    "prefer not to give my email",
-    "rather not give my email",
-    "keep my email private",
-    "no emails please",
-)
-_LEAD_EMAIL_HESITATION = (
-    "why do you need my email",
-    "why do you need email",
-    "why do you need the email",
-    "why email",
-    "not sure about email",
-    "hesitant to share email",
-    "do you need my email",
-    "is email required",
-)
-_LEAD_SIGN_OFF_PATTERNS = (
-    "thanks",
-    "thank you",
-    "appreciate it",
-    "that's all",
-    "thats all",
-    "that is all",
-    "bye",
-    "goodbye",
-    "talk soon",
-    "talk later",
-    "have a good day",
-    "have a great day",
-    "catch you later",
-)
-
-
-def _preferred_lead_name(state: SessionState) -> str:
-    if state.name:
-        return state.name
-    if state.metadata.get("lead_preferred_name"):
-        return state.metadata["lead_preferred_name"]
-    return "friend"
-
-
-def _lead_capture_stage(state: SessionState) -> str:
-    metadata = state.metadata
-    if not state.name and not metadata.get("lead_name_refused"):
-        return "name"
-    if not state.email and not metadata.get("lead_email_refused"):
-        return "email"
-    if not state.phone and not state.phone_opt_out and not metadata.get("lead_phone_refused"):
-        return "phone"
-    return "complete"
-
-
-def _user_refused_name(text: str) -> bool:
-    lowered = (text or "").lower()
-    if not lowered:
-        return False
-    return any(pattern in lowered for pattern in _LEAD_NAME_REFUSALS)
-
-
-def _user_refused_email(text: str) -> bool:
-    lowered = (text or "").lower()
-    if not lowered:
-        return False
-    return any(pattern in lowered for pattern in _LEAD_EMAIL_REFUSALS)
-
-
-def _user_hesitant_about_email(text: str) -> bool:
-    lowered = (text or "").lower()
-    if not lowered:
-        return False
-    return any(pattern in lowered for pattern in _LEAD_EMAIL_HESITATION)
-
-
-def _user_signing_off(text: str) -> bool:
-    lowered = (text or "").lower()
-    if not lowered:
-        return False
-    return any(pattern in lowered for pattern in _LEAD_SIGN_OFF_PATTERNS)
-
-
-def _update_lead_capture_metadata(state: SessionState, user_message: str) -> bool:
-    metadata = state.metadata
-    dirty = False
-    waiting = metadata.get("lead_waiting_for")
-    lowered = (user_message or "").strip().lower()
-
-    if state.name and waiting == "name":
-        metadata.pop("lead_waiting_for", None)
-        metadata.pop("lead_name_attempts", None)
-        dirty = True
-    elif waiting == "name" and _user_refused_name(lowered):
-        metadata["lead_name_refused"] = True
-        metadata["lead_name_refusal_ack_needed"] = True
-        metadata["lead_preferred_name"] = "friend"
-        metadata.pop("lead_waiting_for", None)
-        dirty = True
-
-    if state.email and waiting == "email":
-        metadata.pop("lead_waiting_for", None)
-        metadata.pop("lead_email_attempts", None)
-        dirty = True
-    elif waiting == "email":
-        if _user_refused_email(lowered):
-            metadata["lead_email_refused"] = True
-            metadata["lead_email_refusal_ack_needed"] = True
-            metadata.pop("lead_waiting_for", None)
-            dirty = True
-        elif _user_hesitant_about_email(lowered):
-            metadata["lead_email_reassure_needed"] = True
-            dirty = True
-
-    if (state.phone or state.phone_opt_out) and waiting == "phone":
-        metadata.pop("lead_waiting_for", None)
-        metadata.pop("lead_phone_attempts", None)
-        dirty = True
-
-    if state.phone_opt_out and not metadata.get("lead_phone_refused"):
-        metadata["lead_phone_refused"] = True
-        metadata["lead_phone_refusal_ack_needed"] = True
-        dirty = True
-
-    if _lead_capture_stage(state) == "complete" and metadata.get("lead_waiting_for"):
-        metadata.pop("lead_waiting_for", None)
-        dirty = True
-
-    return dirty
-
-
-def _build_name_prompt() -> str:
-    return "Thanks for replying! May I have your name so I can address you properly?"
-
-
-def _build_email_prompt(state: SessionState, *, reminder: bool = False, reassurance: bool = False) -> str:
-    salutation = _preferred_lead_name(state)
-    prefix = "Thank you" if not reminder else "Just a quick reminder — thank you"
-    base = f"{prefix}, {salutation}. What's the best email to reach you at so I can make sure you don't miss anything important if the chat disconnects?"
-    if reassurance:
-        base += "\n\nThis helps me send you a quick summary in case the connection drops."
-    return base
-
-
-def _build_phone_prompt(reminder: bool = False) -> str:
-    if reminder:
-        return "Just checking again — if you're comfortable, may I have your phone number for quick updates or follow-up?"
-    return "If you're comfortable, may I also have your phone number for quick updates or follow-up?"
-
-
-def _build_email_fail_safe_prompt() -> str:
-    return "Before we wrap up, would you like me to send a quick summary and next steps to your email?"
-
-
-def _prepare_lead_capture_prompts(
-    state: SessionState,
-    *,
-    first_reply: bool,
-    user_signing_off: bool,
-) -> tuple[str, bool, str]:
-    metadata = state.metadata
-    prompts: List[str] = []
-    dirty = False
-
-    if metadata.get("lead_name_refusal_ack_needed"):
-        prompts.append("No worries at all — I'll just call you 'friend.'")
-        metadata["lead_name_refusal_ack_needed"] = False
-        metadata.setdefault("lead_preferred_name", "friend")
-        dirty = True
-    if metadata.get("lead_email_refusal_ack_needed"):
-        prompts.append("No problem — we can continue here in the chat.")
-        metadata["lead_email_refusal_ack_needed"] = False
-        dirty = True
-    if metadata.get("lead_phone_refusal_ack_needed"):
-        prompts.append("No problem at all — we'll continue by chat and email.")
-        metadata["lead_phone_refusal_ack_needed"] = False
-        dirty = True
-
-    stage = _lead_capture_stage(state)
-
-    if stage == "complete":
-        metadata.pop("lead_waiting_for", None)
-        return "\n\n".join(prompts), dirty, stage
-
-    if stage == "name":
-        attempts = metadata.get("lead_name_attempts", 0)
-        if attempts < 2 and (first_reply or metadata.get("lead_waiting_for") == "name" or attempts == 0):
-            prompts.append(_build_name_prompt())
-            metadata["lead_waiting_for"] = "name"
-            metadata["lead_name_attempts"] = attempts + 1
-            dirty = True
-        return "\n\n".join(prompts), dirty, stage
-
-    if stage == "email":
-        reassurance_needed = metadata.pop("lead_email_reassure_needed", False)
-        attempts = metadata.get("lead_email_attempts", 0)
-        reminder = metadata.get("lead_waiting_for") == "email" and attempts > 0
-        prompts.append(_build_email_prompt(state, reminder=reminder, reassurance=reassurance_needed))
-        metadata["lead_waiting_for"] = "email"
-        metadata["lead_email_attempts"] = attempts + 1
-        dirty = True
-        if (
-            user_signing_off
-            and not state.email
-            and not metadata.get("lead_email_refused")
-            and not metadata.get("lead_email_fail_safe_sent")
-        ):
-            prompts.append(_build_email_fail_safe_prompt())
-            metadata["lead_email_fail_safe_sent"] = True
-            dirty = True
-        return "\n\n".join(prompts), dirty, stage
-
-    if stage == "phone":
-        attempts = metadata.get("lead_phone_attempts", 0)
-        reminder = metadata.get("lead_waiting_for") == "phone" and attempts > 0
-        prompts.append(_build_phone_prompt(reminder=reminder))
-        metadata["lead_waiting_for"] = "phone"
-        metadata["lead_phone_attempts"] = attempts + 1
-        dirty = True
-        return "\n\n".join(prompts), dirty, stage
-
-    return "\n\n".join(prompts), dirty, stage
 class ChatError(Exception):
     """Raised when OpenAI or retrieval fails."""
 
@@ -1196,7 +961,6 @@ def stream_chat_response(
         session_id,
         user_message,
     )
-    user_signing_off_flag = _user_signing_off(user_message)
     conversation, is_new = _get_or_create_conversation(db, project, session_id)
     has_prior_messages = (
         db.query(Message.id)
@@ -1206,11 +970,14 @@ def stream_chat_response(
         is not None
     )
 
-    first_user_reply = not has_prior_messages
-
     cache_key = f"{project.id}:{normalized_question}"
-    cached_answer = cache.get(cache_key) if not has_prior_messages else None
-    lead_prompt_text = ""
+    if not has_prior_messages:
+        cached = cache.get(cache_key)
+        if cached:
+            logger.info("Cache hit for project %s question '%s'", project.id, normalized_question)
+            _apply_typing_delay(cached)
+            yield cached
+            return
 
     bot_config: BotConfig = project.bot_config or BotConfig(system_prompt="You are a helpful assistant.")
     system_prompt = bot_config.system_prompt or "You are a helpful assistant."
@@ -1229,9 +996,6 @@ def stream_chat_response(
     )
     extra_instructions.append(
         "Avoid markdown styling (no **bold**, _italics_, or similar). Present service names and lists as clear plain text so they render cleanly in the chat widget."
-    )
-    extra_instructions.append(
-        "Lead capture prompts (name, email, phone) are injected automatically. Do not ask for that contact information yourself—focus on helping once you've acknowledged anything the visitor already shared."
     )
     system_messages: List[Dict[str, str]] = [
         {
@@ -1266,7 +1030,6 @@ def stream_chat_response(
         state_dirty = True
     state_dirty |= _update_state_from_contact_details(session_state, contact_details)
     state_dirty |= _update_state_from_user_message(session_state, user_message)
-    state_dirty |= _update_lead_capture_metadata(session_state, user_message)
 
     _save_message(db, conversation, MessageRole.USER, user_message)
 
@@ -1397,17 +1160,6 @@ def stream_chat_response(
         )
         return
 
-    lead_prompt, lead_dirty, lead_stage = _prepare_lead_capture_prompts(
-        session_state,
-        first_reply=first_user_reply,
-        user_signing_off=user_signing_off_flag,
-    )
-    if lead_prompt:
-        lead_prompt_text = lead_prompt
-    if lead_dirty:
-        _save_session_state(db, state_model, session_state)
-    should_halt_for_lead = bool(lead_prompt_text.strip()) and lead_stage in {"name", "email"}
-
     if is_new:
         emit_integration_events(
             db,
@@ -1420,16 +1172,6 @@ def stream_chat_response(
     emit_integration_events(
         db, project, conversation, IntegrationEvent.USER_MESSAGE, user_message, page_url
     )
-
-    if should_halt_for_lead and lead_prompt_text.strip():
-        lead_reply = lead_prompt_text.strip()
-        _apply_typing_delay(lead_reply)
-        yield lead_reply
-        _save_message(db, conversation, MessageRole.ASSISTANT, lead_reply)
-        emit_integration_events(
-            db, project, conversation, IntegrationEvent.BOT_REPLY, lead_reply, page_url
-        )
-        return
 
     chunks = []
     qas = []
@@ -1491,47 +1233,28 @@ def stream_chat_response(
             bot_config.temperature,
             len(messages),
         )
-        final_text: List[str] = []
-        preface_output = lead_prompt_text.strip()
-        preface_present = bool(preface_output)
-        if preface_present:
-            spacer = "" if preface_output.endswith("\n") else "\n\n"
-            preface_chunk = preface_output + spacer
-            _apply_typing_delay(preface_chunk)
-            yield preface_chunk
-            final_text.append(preface_chunk)
-
-        use_cached = bool(cached_answer) and not preface_present
-        if use_cached:
-            logger.info(
-                "Cache hit for project %s question '%s'", project.id, normalized_question
-            )
-            _apply_typing_delay(cached_answer)
-            yield cached_answer
-            final_text.append(cached_answer)
-            answer = "".join(final_text)
-        else:
-            stream = _client.chat.completions.create(
-                model=_settings.default_model,
-                messages=messages,
-                max_tokens=bot_config.max_tokens,
-                temperature=bot_config.temperature,
-                stream=True,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content if chunk.choices else None
-                if not delta:
-                    continue
-                final_text.append(delta)
-                _apply_typing_delay(delta)
-                yield delta
-            answer = "".join(final_text)
-            logger.info(
-                "OpenAI response | project=%s chars=%s",
-                project.id,
-                len(answer),
-            )
-            cache.set(cache_key, answer)
+        stream = _client.chat.completions.create(
+            model=_settings.default_model,
+            messages=messages,
+            max_tokens=bot_config.max_tokens,
+            temperature=bot_config.temperature,
+            stream=True,
+        )
+        final_text = []
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if not delta:
+                continue
+            final_text.append(delta)
+            _apply_typing_delay(delta)
+            yield delta
+        answer = "".join(final_text)
+        logger.info(
+            "OpenAI response | project=%s chars=%s",
+            project.id,
+            len(answer),
+        )
+        cache.set(cache_key, answer)
         _save_message(db, conversation, MessageRole.ASSISTANT, answer)
         state_changed = False
         if _record_last_question_type(session_state, answer):
@@ -1549,11 +1272,9 @@ def stream_chat_response(
         fallback = "I'm having trouble answering right now. Please try again later."
         _apply_typing_delay(fallback)
         yield fallback
-        final_text.append(fallback)
-        combined_fallback = "".join(final_text)
-        _save_message(db, conversation, MessageRole.ASSISTANT, combined_fallback)
-        if _record_last_question_type(session_state, combined_fallback):
+        _save_message(db, conversation, MessageRole.ASSISTANT, fallback)
+        if _record_last_question_type(session_state, fallback):
             _save_session_state(db, state_model, session_state)
         emit_integration_events(
-            db, project, conversation, IntegrationEvent.BOT_REPLY, combined_fallback, page_url
+            db, project, conversation, IntegrationEvent.BOT_REPLY, fallback, page_url
         )
