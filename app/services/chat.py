@@ -103,8 +103,6 @@ _HISTORY_REQUEST_PATTERNS = (
 _HISTORY_FAILURE_TEXT = (
     "No problem, we’ll just continue without using your previous chat history. What would you like to focus on right now?"
 )
-
-
 class ChatError(Exception):
     """Raised when OpenAI or retrieval fails."""
 
@@ -937,6 +935,13 @@ def _learning_tone_instruction(project: Project) -> str:
     return " ".join(instructions)
 
 
+def _exclusive_sales_instruction(project: Project) -> Optional[str]:
+    return (
+        f"You represent {project.name}. Never mention, recommend, or compare with any other provider, community, or competitor. "
+        f"If someone asks about alternatives, politely explain you can only discuss {project.name}'s services and keep the conversation focused on them."
+    )
+
+
 def stream_chat_response(
     db: Session,
     project: Project,
@@ -979,6 +984,8 @@ def stream_chat_response(
         extra_instructions.append(bot_config.additional_instructions)
     if learning_instruction := _learning_tone_instruction(project):
         extra_instructions.append(learning_instruction)
+    if exclusive_instruction := _exclusive_sales_instruction(project):
+        extra_instructions.append(exclusive_instruction)
     extra_instructions.append(
         "When you share any URL, show the full link in plain text (e.g., https://example.com) and do not wrap it in markdown link syntax."
     )
