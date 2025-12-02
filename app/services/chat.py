@@ -277,7 +277,7 @@ def _prepare_lead_capture_prompts(
     *,
     first_reply: bool,
     user_signing_off: bool,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, str]:
     metadata = state.metadata
     prompts: List[str] = []
     dirty = False
@@ -300,7 +300,7 @@ def _prepare_lead_capture_prompts(
 
     if stage == "complete":
         metadata.pop("lead_waiting_for", None)
-        return "\n\n".join(prompts), dirty
+        return "\n\n".join(prompts), dirty, stage
 
     if stage == "name":
         attempts = metadata.get("lead_name_attempts", 0)
@@ -309,7 +309,7 @@ def _prepare_lead_capture_prompts(
             metadata["lead_waiting_for"] = "name"
             metadata["lead_name_attempts"] = attempts + 1
             dirty = True
-        return "\n\n".join(prompts), dirty
+        return "\n\n".join(prompts), dirty, stage
 
     if stage == "email":
         reassurance_needed = metadata.pop("lead_email_reassure_needed", False)
@@ -328,7 +328,7 @@ def _prepare_lead_capture_prompts(
             prompts.append(_build_email_fail_safe_prompt())
             metadata["lead_email_fail_safe_sent"] = True
             dirty = True
-        return "\n\n".join(prompts), dirty
+        return "\n\n".join(prompts), dirty, stage
 
     if stage == "phone":
         attempts = metadata.get("lead_phone_attempts", 0)
@@ -337,9 +337,9 @@ def _prepare_lead_capture_prompts(
         metadata["lead_waiting_for"] = "phone"
         metadata["lead_phone_attempts"] = attempts + 1
         dirty = True
-        return "\n\n".join(prompts), dirty
+        return "\n\n".join(prompts), dirty, stage
 
-    return "\n\n".join(prompts), dirty
+    return "\n\n".join(prompts), dirty, stage
 class ChatError(Exception):
     """Raised when OpenAI or retrieval fails."""
 
@@ -1397,7 +1397,7 @@ def stream_chat_response(
         )
         return
 
-    lead_prompt, lead_dirty = _prepare_lead_capture_prompts(
+    lead_prompt, lead_dirty, lead_stage = _prepare_lead_capture_prompts(
         session_state,
         first_reply=first_user_reply,
         user_signing_off=user_signing_off_flag,
@@ -1406,6 +1406,7 @@ def stream_chat_response(
         lead_prompt_text = lead_prompt
     if lead_dirty:
         _save_session_state(db, state_model, session_state)
+    should_halt_for_lead = bool(lead_prompt_text.strip()) and lead_stage in {"name", "email"}
 
     if is_new:
         emit_integration_events(
@@ -1419,6 +1420,16 @@ def stream_chat_response(
     emit_integration_events(
         db, project, conversation, IntegrationEvent.USER_MESSAGE, user_message, page_url
     )
+
+    if should_halt_for_lead and lead_prompt_text.strip():
+        lead_reply = lead_prompt_text.strip()
+        _apply_typing_delay(lead_reply)
+        yield lead_reply
+        _save_message(db, conversation, MessageRole.ASSISTANT, lead_reply)
+        emit_integration_events(
+            db, project, conversation, IntegrationEvent.BOT_REPLY, lead_reply, page_url
+        )
+        return
 
     chunks = []
     qas = []
