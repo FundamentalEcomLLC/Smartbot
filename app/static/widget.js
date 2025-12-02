@@ -524,30 +524,6 @@
     }
   }
 
-  function startInactivityCountdown(messagesEl) {
-    if (!state.sessionId || !state.hasConversation) {
-      return;
-    }
-    clearInactivityTimers();
-    state.inactivityTimer = window.setTimeout(() => {
-      if (state.warningShown) {
-        return;
-      }
-      state.warningShown = true;
-      appendMessage(messagesEl, "assistant", WARNING_MESSAGE);
-      state.closeTimer = window.setTimeout(() => {
-        appendMessage(messagesEl, "assistant", CLOSE_MESSAGE);
-        if (state.panelEl) {
-          window.setTimeout(() => {
-            closeChat(state.panelEl, messagesEl, "auto_inactivity").catch((err) =>
-              console.error("Chat widget auto-close", err)
-            );
-          }, 1200);
-        }
-      }, INACTIVITY_CLOSE_MS);
-    }, INACTIVITY_WARNING_MS);
-  }
-
   async function closeSessionRequest(options = {}) {
     const {
       sessionId: explicitSessionId,
@@ -674,7 +650,6 @@
     } finally {
       state.hasConversation = true;
       persistSessionState();
-      startInactivityCountdown(messagesEl);
       state.isSending = false;
     }
   }
