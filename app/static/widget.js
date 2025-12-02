@@ -1,8 +1,19 @@
 
 (function () {
-  const scriptEl = document.currentScript;
+  function resolveScriptElement() {
+    if (document.currentScript) {
+      return document.currentScript;
+    }
+    const candidates = Array.from(document.querySelectorAll("script[data-bot-id]"));
+    if (candidates.length) {
+      return candidates[candidates.length - 1];
+    }
+    return null;
+  }
+
+  const scriptEl = resolveScriptElement();
   if (!scriptEl) {
-    console.error("Chat widget: failed to locate current <script> element.");
+    console.error("Chat widget: failed to locate chat embed <script> element.");
     return;
   }
 
@@ -39,7 +50,243 @@
     panelEl: null,
     messagesEl: null,
     autoWelcomeShown: false,
+    launcherTheme: "dark",
   };
+
+  const LAUNCHER_THEMES = {
+    dark: {
+      id: "dark",
+      background: "#0f172a",
+      color: "#ffffff",
+      border: "none",
+      shadow: "0 22px 45px rgba(15,23,42,0.35)",
+      shadowHover: "0 28px 55px rgba(15,23,42,0.45)",
+    },
+    light: {
+      id: "light",
+      background: "#f8fafc",
+      color: "#111827",
+      border: "1px solid rgba(15,23,42,0.18)",
+      shadow: "0 22px 45px rgba(15,23,42,0.22)",
+      shadowHover: "0 28px 55px rgba(15,23,42,0.3)",
+    },
+  };
+
+  let autoContrastListenersBound = false;
+  let contrastUpdateScheduled = false;
+
+  function setLauncherTheme(theme) {
+    if (!theme || theme.id === state.launcherTheme) {
+      return;
+    }
+    const root = document.documentElement;
+    root.style.setProperty("--chatbot-launcher-bg", theme.background);
+    root.style.setProperty("--chatbot-launcher-fg", theme.color);
+    root.style.setProperty("--chatbot-launcher-border", theme.border);
+    root.style.setProperty("--chatbot-launcher-shadow", theme.shadow);
+    root.style.setProperty("--chatbot-launcher-shadow-hover", theme.shadowHover);
+    state.launcherTheme = theme.id;
+  }
+
+  function parseHexColor(value) {
+    const hex = value.replace("#", "");
+    if (hex.length !== 3 && hex.length !== 6) {
+      return null;
+    }
+    const segments = hex.length === 3 ? hex.split("").map((char) => char + char) : hex.match(/.{2}/g);
+    if (!segments) {
+      return null;
+    }
+    const [r, g, b] = segments.map((segment) => parseInt(segment, 16));
+    if ([r, g, b].some(Number.isNaN)) {
+      return null;
+    }
+    return { r, g, b, a: 1 };
+  }
+
+  function parseRgbColor(value) {
+    const match = value.match(/rgba?\(([^)]+)\)/i);
+    if (!match) {
+      return null;
+    }
+    const parts = match[1].split(",").map((part) => part.trim());
+    if (parts.length < 3) {
+      return null;
+    }
+    const parseChannel = (input) => {
+      if (input.endsWith("%")) {
+        return Math.round((parseFloat(input) / 100) * 255);
+      }
+      return parseFloat(input);
+    };
+    const r = parseChannel(parts[0]);
+    const g = parseChannel(parts[1]);
+    const b = parseChannel(parts[2]);
+    const a = parts[3] !== undefined ? parseFloat(parts[3]) : 1;
+    if ([r, g, b, a].some((channel) => Number.isNaN(channel))) {
+      return null;
+    }
+    return { r, g, b, a };
+  }
+
+  function hslToRgb(h, s, l) {
+    const saturation = s / 100;
+    const lightness = l / 100;
+    const c = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = lightness - c / 2;
+    let rPrime = 0;
+    let gPrime = 0;
+    let bPrime = 0;
+
+    if (h >= 0 && h < 60) {
+      rPrime = c;
+      gPrime = x;
+    } else if (h >= 60 && h < 120) {
+      rPrime = x;
+      gPrime = c;
+    } else if (h >= 120 && h < 180) {
+      gPrime = c;
+      bPrime = x;
+    } else if (h >= 180 && h < 240) {
+      gPrime = x;
+      bPrime = c;
+    } else if (h >= 240 && h < 300) {
+      rPrime = x;
+      bPrime = c;
+    } else {
+      rPrime = c;
+      bPrime = x;
+    }
+
+    return {
+      r: Math.round((rPrime + m) * 255),
+      g: Math.round((gPrime + m) * 255),
+      b: Math.round((bPrime + m) * 255),
+      a: 1,
+    };
+  }
+
+  function parseHslColor(value) {
+    const match = value.match(/hsla?\(([^)]+)\)/i);
+    if (!match) {
+      return null;
+    }
+    const parts = match[1].split(",").map((part) => part.trim());
+    if (parts.length < 3) {
+      return null;
+    }
+    const h = parseFloat(parts[0]);
+    const s = parseFloat(parts[1]);
+    const l = parseFloat(parts[2]);
+    const a = parts[3] !== undefined ? parseFloat(parts[3]) : 1;
+    if ([h, s, l, a].some((channel) => Number.isNaN(channel))) {
+      return null;
+    }
+    const rgb = hslToRgb(h, s, l);
+    rgb.a = a;
+    return rgb;
+  }
+
+  function parseColor(value) {
+    if (!value) {
+      return null;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized.startsWith("#")) {
+      return parseHexColor(normalized);
+    }
+    if (normalized.startsWith("rgb")) {
+      return parseRgbColor(normalized);
+    }
+    if (normalized.startsWith("hsl")) {
+      return parseHslColor(normalized);
+    }
+    return null;
+  }
+
+  function relativeLuminance(rgb) {
+    if (!rgb) {
+      return null;
+    }
+    const transformChannel = (channel) => {
+      const c = channel / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    const r = transformChannel(rgb.r);
+    const g = transformChannel(rgb.g);
+    const b = transformChannel(rgb.b);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  function effectiveBackgroundColor(target) {
+    let node = target;
+    while (node) {
+      const style = window.getComputedStyle(node);
+      const colorValue = style && style.backgroundColor;
+      const parsed = parseColor(colorValue);
+      if (parsed && (parsed.a ?? 1) > 0.05) {
+        return { raw: colorValue, parsed };
+      }
+      node = node.parentElement;
+    }
+    const fallback = window.getComputedStyle(document.body || document.documentElement).backgroundColor;
+    return { raw: fallback, parsed: parseColor(fallback) };
+  }
+
+  function samplePageBackgroundColor() {
+    if (typeof document.elementFromPoint !== "function") {
+      return effectiveBackgroundColor(document.body || document.documentElement);
+    }
+    const offsets = [
+      { x: window.innerWidth - 32, y: window.innerHeight - 32 },
+      { x: window.innerWidth - 80, y: window.innerHeight - 32 },
+      { x: window.innerWidth - 32, y: window.innerHeight - 80 },
+    ];
+    for (const point of offsets) {
+      const clampedX = Math.max(1, Math.min(point.x, window.innerWidth - 1));
+      const clampedY = Math.max(1, Math.min(point.y, window.innerHeight - 1));
+      const target = document.elementFromPoint(clampedX, clampedY);
+      if (target) {
+        if (target.closest && target.closest(".chatbot-launcher, .chatbot-panel")) {
+          continue;
+        }
+        const result = effectiveBackgroundColor(target);
+        if (result && result.parsed) {
+          return result;
+        }
+      }
+    }
+    return effectiveBackgroundColor(document.body || document.documentElement);
+  }
+
+  function applyAutoContrastTheme() {
+    try {
+      const sample = samplePageBackgroundColor();
+      if (!sample || !sample.parsed) {
+        return;
+      }
+      const luminance = relativeLuminance(sample.parsed);
+      if (luminance === null) {
+        return;
+      }
+      const theme = luminance < 0.45 ? LAUNCHER_THEMES.light : LAUNCHER_THEMES.dark;
+      setLauncherTheme(theme);
+    } catch (err) {
+      console.warn("Chat widget: auto-contrast failed", err);
+    }
+  }
+
+  function scheduleAutoContrastUpdate() {
+    if (contrastUpdateScheduled) {
+      return;
+    }
+    contrastUpdateScheduled = true;
+    requestAnimationFrame(() => {
+      contrastUpdateScheduled = false;
+      applyAutoContrastTheme();
+    });
+  }
 
   function readPersistedSession() {
     try {
@@ -117,6 +364,11 @@
       --cc-muted: #64748b;
       --cc-radius: 24px;
       --cc-font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      --chatbot-launcher-bg: var(--cc-dark);
+      --chatbot-launcher-fg: #ffffff;
+      --chatbot-launcher-border: none;
+      --chatbot-launcher-shadow: 0 22px 45px rgba(15,23,42,0.35);
+      --chatbot-launcher-shadow-hover: 0 28px 55px rgba(15,23,42,0.45);
     }
     .chatbot-launcher {
       position: fixed;
@@ -125,11 +377,11 @@
       width: 64px;
       height: 64px;
       border-radius: 18px;
-      background: var(--cc-dark);
-      color: #fff;
-      border: none;
+      background: var(--chatbot-launcher-bg, var(--cc-dark));
+      color: var(--chatbot-launcher-fg, #fff);
+      border: var(--chatbot-launcher-border, none);
       cursor: pointer;
-      box-shadow: 0 22px 45px rgba(15,23,42,0.35);
+      box-shadow: var(--chatbot-launcher-shadow, 0 22px 45px rgba(15,23,42,0.35));
       font-size: 28px;
       display: flex;
       align-items: center;
@@ -139,7 +391,7 @@
     }
     .chatbot-launcher:hover {
       transform: translateY(-2px);
-      box-shadow: 0 28px 55px rgba(15,23,42,0.45);
+      box-shadow: var(--chatbot-launcher-shadow-hover, 0 28px 55px rgba(15,23,42,0.45));
     }
     .chatbot-panel {
       position: fixed;
@@ -671,6 +923,7 @@
   }
 
   function createWidget() {
+    applyAutoContrastTheme();
     injectStyles();
 
     const launcher = document.createElement("button");
@@ -788,7 +1041,13 @@
       }
       syncPanelSize(panel);
       updateSizeChipLabel(statusChip);
+      scheduleAutoContrastUpdate();
     });
+
+    if (!autoContrastListenersBound) {
+      autoContrastListenersBound = true;
+      window.addEventListener("scroll", scheduleAutoContrastUpdate, { passive: true });
+    }
 
     window.addEventListener("beforeunload", function () {
       if (!state.sessionId || !state.hasConversation) {
