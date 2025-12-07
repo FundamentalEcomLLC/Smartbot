@@ -949,9 +949,6 @@
     const headerRight = document.createElement("div");
     headerRight.className = "chatbot-header-right";
 
-    const controlsRow = document.createElement("div");
-    controlsRow.className = "chatbot-controls-row";
-
     const statusChip = document.createElement("button");
     statusChip.type = "button";
     statusChip.className = "chatbot-chip";
@@ -964,15 +961,13 @@
     closeBtn.setAttribute("aria-label", "Close chat");
     closeBtn.textContent = "×";
 
-    controlsRow.appendChild(statusChip);
-    controlsRow.appendChild(closeBtn);
-
     const statusPill = document.createElement("span");
     statusPill.className = "chatbot-status-pill";
     statusPill.textContent = "Online";
 
-    headerRight.appendChild(controlsRow);
+    headerRight.appendChild(statusChip);
     headerRight.appendChild(statusPill);
+    headerRight.appendChild(closeBtn);
 
     header.appendChild(heading);
     header.appendChild(headerRight);
