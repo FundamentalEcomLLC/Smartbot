@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import random
 import re
 import secrets
 import string
-import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, Iterable, List, Optional
@@ -292,14 +290,13 @@ def _interpret_history_consent(text: str) -> str:
 
 
 def _apply_typing_delay(sample: str, *, cps: float = 28.0) -> None:
-    """Sleep briefly so replies feel like a human typing."""
+    """Previously throttled output to mimic typing; now a no-op for streaming."""
+    return
 
-    if not sample:
-        time.sleep(0.1)
-        return
-    delay = len(sample) / max(cps, 1.0)
-    delay += random.uniform(-0.05, 0.05)
-    time.sleep(max(0.08, min(delay, 1.3)))
+
+def _stream_text_chunks(text: str, chunk_size: int = 120) -> Generator[str, None, None]:
+    for idx in range(0, len(text), max(1, chunk_size)):
+        yield text[idx : idx + chunk_size]
 
 
 def _clean_phone(raw: str) -> Optional[str]:
@@ -975,8 +972,8 @@ def stream_chat_response(
         cached = cache.get(cache_key)
         if cached:
             logger.info("Cache hit for project %s question '%s'", project.id, normalized_question)
-            _apply_typing_delay(cached)
-            yield cached
+            for chunk in _stream_text_chunks(cached):
+                yield chunk
             return
 
     bot_config: BotConfig = project.bot_config or BotConfig(system_prompt="You are a helpful assistant.")
@@ -1246,7 +1243,6 @@ def stream_chat_response(
             if not delta:
                 continue
             final_text.append(delta)
-            _apply_typing_delay(delta)
             yield delta
         answer = "".join(final_text)
         logger.info(
