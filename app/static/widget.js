@@ -468,8 +468,6 @@
       color: #059669;
       font-size: 0.8rem;
       font-weight: 600;
-      /* Ensure the pill appears before the close button in the header row */
-      order: 1;
     }
     .chatbot-status-pill::before {
       content: '';
