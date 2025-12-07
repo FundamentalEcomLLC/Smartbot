@@ -1021,7 +1021,7 @@
 
     const heading = document.createElement("p");
     heading.className = "chatbot-heading";
-    heading.textContent = "What do you need help with?";
+    heading.textContent = "Stuck? Ask us anything 🙂";
 
     const statusChip = document.createElement("button");
     statusChip.type = "button";
@@ -1064,7 +1064,7 @@
     inputWrap.className = "chatbot-input";
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = "Ask us anything…";
+    input.placeholder = "Need help? Type here…";
     const sendBtn = document.createElement("button");
     sendBtn.type = "submit";
     sendBtn.textContent = "Send";
