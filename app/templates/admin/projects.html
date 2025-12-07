@@ -17,7 +17,7 @@
       <tbody>
         {% for project in projects %}
           <tr>
-            <td><a href="/admin/projects/{{ project.id }}">{{ project.name }}</a></td>
+            <td><a href="/admin/projects/{{ project.id }}">{{ project.id }} · {{ project.name }}</a></td>
             <td>{{ project.primary_domain }}</td>
             <td>{{ project.crawl_status.value if project.crawl_status else '' }}</td>
             <td>{{ project.last_crawled_at or '—' }}</td>

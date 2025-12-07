@@ -38,8 +38,17 @@ def normalize_url(url: str) -> str:
     return normalized
 
 
+def _canonical_host(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    port = parsed.port
+    return f"{host}:{port}" if port else host
+
+
 def same_domain(url: str, root: str) -> bool:
-    return urlparse(url).netloc == urlparse(root).netloc
+    return _canonical_host(url) == _canonical_host(root)
 
 
 def extract_text(html: str) -> Tuple[str, Dict[str, str]]:
