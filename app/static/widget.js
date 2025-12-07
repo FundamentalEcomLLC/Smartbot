@@ -417,11 +417,11 @@
       pointer-events: auto;
     }
     .chatbot-header {
-      padding:45px 24px 12px 24px;
+      padding: 16px 24px;
       display: flex;
+      align-items: center;
       justify-content: space-between;
       gap: 1rem;
-      align-items: flex-start;
       border-bottom: 1px solid rgba(15, 23, 42, 0.06);
     }
     .chatbot-heading {
@@ -556,19 +556,18 @@
       color: #fff;
     }
     .chatbot-resizer {
-      position: absolute;
-      top: 18px;
-      left: 16px;
-      width: 22px;
-      height: 22px;
+      position: static;
+      width: 24px;
+      height: 24px;
       border-radius: 8px;
       border: 1px solid rgba(37,99,235,0.25);
-      background: rgba(37,99,235,0.1);
+      background: rgba(37,99,235,0.06);
       cursor: nwse-resize;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 6px 14px rgba(37,99,235,0.25);
+      box-shadow: none;
+      margin-right: 8px;
     }
     .chatbot-resizer::after {
       content: '';
@@ -944,14 +943,20 @@
     heading.className = "chatbot-heading";
     heading.textContent = "Smartbot AI Assistant";
 
-    const headerRight = document.createElement("div");
-    headerRight.className = "chatbot-header-right";
-
     const statusChip = document.createElement("button");
     statusChip.type = "button";
     statusChip.className = "chatbot-chip";
     statusChip.setAttribute("aria-label", "Cycle widget size");
     updateSizeChipLabel(statusChip);
+
+    const headerRight = document.createElement("div");
+    headerRight.className = "chatbot-header-right";
+
+    const resizer = document.createElement("div");
+    resizer.className = "chatbot-resizer";
+    resizer.setAttribute("aria-hidden", "true");
+    resizer.setAttribute("title", "Drag to resize");
+    registerResizer(panel, resizer, statusChip);
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "chatbot-close";
@@ -967,6 +972,7 @@
     headerRight.appendChild(statusPill);
     headerRight.appendChild(closeBtn);
 
+    header.appendChild(resizer);
     header.appendChild(heading);
     header.appendChild(headerRight);
 
@@ -994,12 +1000,6 @@
     footerNote.className = "chatbot-footer";
     footerNote.textContent = "Powered by LeadGenSource.com";
 
-    const resizer = document.createElement("div");
-    resizer.className = "chatbot-resizer";
-    resizer.setAttribute("aria-hidden", "true");
-    resizer.setAttribute("title", "Drag to resize");
-    registerResizer(panel, resizer, statusChip);
-
     launcher.addEventListener("click", function () {
       if (state.isOpen) {
         closePanel(panel);
@@ -1022,7 +1022,6 @@
     panel.appendChild(messagesEl);
     panel.appendChild(inputWrap);
     panel.appendChild(footerNote);
-    panel.appendChild(resizer);
 
     document.body.appendChild(launcher);
     document.body.appendChild(panel);
