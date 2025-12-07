@@ -294,9 +294,22 @@ def _apply_typing_delay(sample: str, *, cps: float = 28.0) -> None:
     return
 
 
-def _stream_text_chunks(text: str, chunk_size: int = 120) -> Generator[str, None, None]:
-    for idx in range(0, len(text), max(1, chunk_size)):
-        yield text[idx : idx + chunk_size]
+def _stream_text_chunks(text: str, pattern: tuple[int, ...] = (4, 5, 6, 7, 8, 3)) -> Generator[str, None, None]:
+    if not text:
+        return
+    lengths = pattern or (5,)
+    idx = 0
+    step = 0
+    total = len(text)
+    while idx < total:
+        length = lengths[step % len(lengths)]
+        if length < 3:
+            length = 3
+        if length > 8:
+            length = 8
+        yield text[idx : idx + length]
+        idx += length
+        step += 1
 
 
 def _clean_phone(raw: str) -> Optional[str]:
