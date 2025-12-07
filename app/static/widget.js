@@ -433,10 +433,10 @@
       font-weight: 700;
     }
     .chatbot-header-right {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 0.45rem;
+      display: inline-flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.5rem;
       margin-left: auto;
     }
     .chatbot-controls-row {
@@ -454,6 +454,9 @@
       border: none;
       cursor: pointer;
       font-family: var(--cc-font);
+      /* Hide the size chip from the UI, but keep it in the DOM
+         so existing JS (size presets, resizer label updates) keeps working */
+      display: none;
     }
     .chatbot-status-pill {
       display: inline-flex;
@@ -465,6 +468,8 @@
       color: #059669;
       font-size: 0.8rem;
       font-weight: 600;
+      /* Ensure the pill appears before the close button in the header row */
+      order: 1;
     }
     .chatbot-status-pill::before {
       content: '';
@@ -472,10 +477,6 @@
       height: 6px;
       border-radius: 50%;
       background: currentColor;
-    }
-    .chatbot-header-right .chatbot-status-pill {
-      align-self: flex-end;
-      margin-right: calc(32px + 0.45rem);
     }
     .chatbot-close {
       border: none;
@@ -930,7 +931,7 @@
     launcher.className = "chatbot-launcher";
     launcher.type = "button";
     launcher.setAttribute("aria-label", "Open chat");
-    launcher.textContent = "💬";
+    launcher.textContent = "🤖";
 
     const panel = document.createElement("div");
     panel.className = "chatbot-panel";
@@ -943,7 +944,7 @@
 
     const heading = document.createElement("p");
     heading.className = "chatbot-heading";
-    heading.textContent = "I'M HERE TO HELP!";
+    heading.textContent = "Smartbot AI Assistant";
 
     const headerRight = document.createElement("div");
     headerRight.className = "chatbot-header-right";
@@ -998,7 +999,7 @@
 
     const footerNote = document.createElement("p");
     footerNote.className = "chatbot-footer";
-    footerNote.textContent = "Powered by Rankflow Digital";
+    footerNote.textContent = "Powered by LeadGenSource.com";
 
     const resizer = document.createElement("div");
     resizer.className = "chatbot-resizer";
