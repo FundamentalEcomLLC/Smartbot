@@ -294,22 +294,12 @@ def _apply_typing_delay(sample: str, *, cps: float = 28.0) -> None:
     return
 
 
-def _stream_text_chunks(text: str, pattern: tuple[int, ...] = (4, 5, 6, 7, 8, 3)) -> Generator[str, None, None]:
+def _stream_text_chunks(text: str) -> Generator[str, None, None]:
+    """Yield cached responses one character at a time for real streaming."""
     if not text:
         return
-    lengths = pattern or (5,)
-    idx = 0
-    step = 0
-    total = len(text)
-    while idx < total:
-        length = lengths[step % len(lengths)]
-        if length < 3:
-            length = 3
-        if length > 8:
-            length = 8
-        yield text[idx : idx + length]
-        idx += length
-        step += 1
+    for char in text:
+        yield char
 
 
 def _clean_phone(raw: str) -> Optional[str]:
