@@ -712,6 +712,74 @@
     return bubble;
   }
 
+  function createTypingAnimator(targetEl, options = {}) {
+    const {
+      minCharsPerTick = 1,
+      maxCharsPerTick = 3,
+      tickIntervalMs = 24,
+      maxDurationMs = 5000,
+    } = options;
+    let buffer = "";
+    let timerId = null;
+    let startedAt = 0;
+
+    function clearTimer() {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+    }
+
+    function flushBuffer() {
+      if (!buffer) {
+        return;
+      }
+      targetEl.textContent += buffer;
+      buffer = "";
+    }
+
+    function scheduleTick() {
+      if (timerId) {
+        return;
+      }
+      timerId = setTimeout(tick, tickIntervalMs);
+    }
+
+    function tick() {
+      timerId = null;
+      if (!buffer) {
+        return;
+      }
+      const elapsed = performance.now() - startedAt;
+      if (elapsed >= maxDurationMs) {
+        flushBuffer();
+        return;
+      }
+      const span = Math.max(minCharsPerTick, Math.min(maxCharsPerTick, buffer.length));
+      targetEl.textContent += buffer.slice(0, span);
+      buffer = buffer.slice(span);
+      scheduleTick();
+    }
+
+    return {
+      enqueue(text) {
+        if (!text) {
+          return;
+        }
+        buffer += text;
+        if (!startedAt) {
+          startedAt = performance.now();
+        }
+        scheduleTick();
+      },
+      flush() {
+        clearTimer();
+        flushBuffer();
+        startedAt = 0;
+      },
+    };
+  }
+
   function openPanel(panel, statusChip) {
     if (state.isOpen) {
       return;
@@ -832,6 +900,8 @@
     inputEl.value = "";
     appendMessage(messagesEl, "user", text);
     const assistantBubble = appendMessage(messagesEl, "assistant", "...");
+    const typingAnimator = createTypingAnimator(assistantBubble);
+    let placeholderActive = true;
     let responseText = "";
     state.hasConversation = true;
     persistSessionState();
@@ -860,16 +930,26 @@
         if (done) {
           break;
         }
-        responseText += decoder.decode(value, { stream: true });
-        assistantBubble.textContent = responseText;
+        const chunk = decoder.decode(value, { stream: true });
+        if (!chunk) {
+          continue;
+        }
+        if (placeholderActive) {
+          assistantBubble.textContent = "";
+          placeholderActive = false;
+        }
+        responseText += chunk;
+        typingAnimator.enqueue(chunk);
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
+      typingAnimator.flush();
       responseText = responseText || "(no response)";
       assistantBubble.textContent = responseText;
     } catch (err) {
       console.error("Chat widget error", err);
       responseText = "Sorry, something went wrong.";
+      typingAnimator.flush();
       assistantBubble.textContent = responseText;
     } finally {
       state.hasConversation = true;
