@@ -941,7 +941,7 @@
 
     const heading = document.createElement("p");
     heading.className = "chatbot-heading";
-    heading.textContent = "Smartbot AI Assistant";
+    heading.textContent = "What do you need help with?";
 
     const statusChip = document.createElement("button");
     statusChip.type = "button";
