@@ -103,6 +103,109 @@ _HISTORY_REQUEST_PATTERNS = (
 _HISTORY_FAILURE_TEXT = (
     "No problem, we’ll just continue without using your previous chat history. What would you like to focus on right now?"
 )
+
+
+def _summarize_goal_text(goal: str) -> str:
+    if not goal:
+        return ""
+
+    cleaned = " ".join(goal.split()).strip()
+    if not cleaned:
+        return ""
+
+    original_lower = cleaned.lower()
+    annoyed_prefixes = (
+        "i already told you",
+        "i already said",
+        "you already know",
+        "you already asked",
+        "i just said",
+    )
+    for prefix in annoyed_prefixes:
+        if original_lower.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].lstrip(" ,.-:;")
+            original_lower = cleaned.lower()
+            break
+
+    cleaned = cleaned.strip()
+    lowered = cleaned.lower()
+
+    if lowered.startswith("just "):
+        cleaned = cleaned[5:].lstrip(" ,.-:;")
+        lowered = cleaned.lower()
+
+    if not cleaned:
+        if "tour" in original_lower:
+            return "Schedule a tour"
+        if "call" in original_lower:
+            return "Schedule a call"
+        if any(keyword in original_lower for keyword in ("price", "budget", "quote", "estimate")):
+            return "Review pricing and budget"
+        return "Continue conversation"
+
+    keyword_summaries = (
+        (("tour", "walkthrough", "visit", "showing"), "Schedule a tour"),
+        (("price", "pricing", "cost", "quote", "budget", "estimate"), "Review pricing and budget"),
+        (("call", "phone", "talk", "chat"), "Schedule a call"),
+        (("timeline", "availability", "move-in", "move in", "deadline", "timing"), "Confirm availability and timeline"),
+        (("options", "plans", "packages", "models", "layout", "floor plan"), "Review available options"),
+        (("support", "issue", "problem", "help", "question", "questions"), "Answer outstanding questions"),
+        (("application", "apply", "paperwork"), "Discuss application steps"),
+        (("financing", "loan", "credit", "mortgage"), "Discuss financing needs"),
+    )
+    for keywords, summary in keyword_summaries:
+        if any(keyword in original_lower for keyword in keywords):
+            return summary
+
+    professional_prefixes = (
+        "i would like to ",
+        "i'd like to ",
+        "i want to ",
+        "i want ",
+        "i need to ",
+        "i need ",
+        "i was hoping to ",
+        "i'm hoping to ",
+        "i am hoping to ",
+        "i'm trying to ",
+        "i am trying to ",
+        "i'm looking to ",
+        "i am looking to ",
+        "looking to ",
+        "trying to ",
+        "need to ",
+        "want to ",
+    )
+    for prefix in professional_prefixes:
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].lstrip(" ,.-:;")
+            lowered = cleaned.lower()
+            break
+
+    pronoun_replacements = (
+        (r"\bmy\b", "their"),
+        (r"\bmine\b", "theirs"),
+        (r"\bours\b", "theirs"),
+        (r"\bour\b", "their"),
+        (r"\bme\b", "them"),
+        (r"\bus\b", "them"),
+    )
+    for pattern, replacement in pronoun_replacements:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+
+    cleaned = cleaned.strip(" ,.-:;")
+    cleaned = cleaned.rstrip(".!?")
+    if not cleaned:
+        return "Continue conversation"
+
+    sentence = cleaned[0].upper() + cleaned[1:]
+    leading_verbs = ("Schedule", "Review", "Discuss", "Confirm", "Plan", "Explore", "Outline", "Finalize")
+    if not sentence.lower().startswith(tuple(verb.lower() for verb in leading_verbs)):
+        sentence = f"Discuss {sentence.lower()}"
+        sentence = sentence[0].upper() + sentence[1:]
+    return sentence
+
+
 class ChatError(Exception):
     """Raised when OpenAI or retrieval fails."""
 
@@ -141,7 +244,7 @@ class SessionState:
         elif self.phone_opt_out:
             bits.append("Phone: visitor declined to share")
         if self.main_goal:
-            bits.append(f"Goal: {self.main_goal}")
+            bits.append(f"Goal: {_summarize_goal_text(self.main_goal)}")
         if self.financing_interested:
             budget_text = f" around ${self.budget}" if self.budget else ""
             bits.append(f"Financing interest{budget_text}")
