@@ -273,7 +273,7 @@ def _history_email(conversation: Conversation, state: SessionState) -> Optional[
     return conversation.visitor_email or state.email
 
 
-def _interpret_history_consent(text: str) -> str:
+def _interpret_history_consent(text: str, *, require_history_keyword: bool = False) -> str:
     lowered = (text or "").strip().lower()
     if not lowered:
         return "unknown"
@@ -283,6 +283,8 @@ def _interpret_history_consent(text: str) -> str:
     for phrase in _HISTORY_REQUEST_PATTERNS:
         if phrase in lowered:
             return "yes"
+    if require_history_keyword:
+        return "unknown"
     for token in _HISTORY_YES_TOKENS:
         if token in lowered:
             return "yes"
@@ -528,6 +530,7 @@ def _handle_history_consent(
     *,
     has_prior_sessions: bool,
     user_message: str,
+    history_requested: bool,
 ) -> HistoryConsentResult:
     result = HistoryConsentResult()
     email = _history_email(conversation, session_state)
@@ -551,8 +554,7 @@ def _handle_history_consent(
         return result
 
     if status == "declined":
-        decision = _interpret_history_consent(user_message)
-        if decision == "yes":
+        if history_requested:
             session_state.otp_consent_status = "pending"
             session_state.otp_consent_prompted_at = _now()
             result.state_dirty = True
@@ -565,6 +567,8 @@ def _handle_history_consent(
         return result
 
     if status == "not_requested":
+        if not history_requested:
+            return result
         session_state.otp_consent_status = "pending"
         session_state.otp_consent_prompted_at = _now()
         result.state_dirty = True
@@ -595,10 +599,8 @@ def _handle_history_consent(
             session_state.otp_consent_prompted_at = None
             _reset_otp_state(session_state, reset_consent=False)
             result.state_dirty = True
-            result.bot_reply = (
-                "Got it, we’ll start fresh. Let’s focus on what you need right now. What would you like to work on?"
-            )
-            result.should_halt = True
+            result.bot_reply = None
+            result.should_halt = False
             return result
         result.bot_reply = (
             "No problem—just let me know if you’d like me to pull in your previous conversation or start fresh today."
@@ -1036,12 +1038,16 @@ def stream_chat_response(
     if state_dirty:
         _save_session_state(db, state_model, session_state)
 
+    history_keyword_decision = _interpret_history_consent(user_message, require_history_keyword=True)
+    explicit_history_request = history_keyword_decision == "yes"
+
     has_prior_sessions = _has_prior_sessions(db, project.id, conversation)
     consent_result = _handle_history_consent(
         session_state,
         conversation,
         has_prior_sessions=has_prior_sessions,
         user_message=user_message,
+        history_requested=explicit_history_request,
     )
     otp_send_state_dirty = False
     if consent_result.trigger_otp_send:
